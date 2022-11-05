@@ -1,12 +1,16 @@
-use crate::block::BlockHash;
+use crate::block::{BlockHash};
+use crate::storage::Storage;
+use crate::storage::impls::InMemoryMerkleNodeStorage;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum MerkleNode {
     Branch(BlockHash, BlockHash),
     Leaf(BlockHash)
 }
 
-impl From<&MerkleNode> for [u8; 65] {
+pub type MerkleNodeBytes = [u8;65];
+
+impl From<&MerkleNode> for MerkleNodeBytes {
     fn from(node: &MerkleNode) -> Self {
         let mut data: [u8; 65] = [0; 65];
         
@@ -25,7 +29,8 @@ impl From<&MerkleNode> for [u8; 65] {
     }
 }
 
-impl From<[u8; 65]> for MerkleNode {
+impl From<[u8; 65]> for MerkleNode 
+{
     fn from(data: [u8; 65]) -> Self {
         if data[0] > 0 {
             let mut hash_left: [u8; 32] = [0; 32];
@@ -41,13 +46,62 @@ impl From<[u8; 65]> for MerkleNode {
     }
 }
 
-pub struct MerkleTree<Store: crate::storage::Storage<BlockHash, MerkleNode>> {
+impl AsRef<MerkleNode> for MerkleNode {
+    fn as_ref<'a>(&'a self) -> &'a Self {
+        self
+    }
+}
+
+impl From<&MerkleNode> for BlockHash {
+    fn from(node: &MerkleNode) -> BlockHash {
+        BlockHash(crate::hash::sha256(<[u8; 65]>::from(node)))
+    }
+}
+
+pub struct MerkleTree<Store: Storage<K=BlockHash,V=MerkleNode>> {
     store: Store,
     root_hash: Option<BlockHash>
 }
 
-impl<Store: crate::storage::Storage<BlockHash, MerkleNode>> MerkleTree<Store>
+impl MerkleTree<InMemoryMerkleNodeStorage>
 {
+    pub fn in_memory() -> Self {
+        Self {
+            store: InMemoryMerkleNodeStorage::default(),
+            root_hash: None
+        }
+    }
+}
+
+impl<Store: Storage<K=BlockHash,V=MerkleNode>> MerkleTree<Store>
+{
+    /// Insère un nouveau hash dans l'arbre
+    pub fn insert(&mut self, hash: impl Into<BlockHash>) -> std::io::Result<()> {
+        let path = self.right_traverse()?;
+
+        let leaf = MerkleNode::Leaf(hash.into());
+
+        // On sauvegarde la feuille
+        self.store.save(&leaf)?;
+        
+        // Premier cas: arbre vide, facile !
+        if path.len() == 0 {
+            self.root_hash = Some(BlockHash::from(&leaf));
+        }
+
+        Ok(())
+    }
+
+    pub fn root(&self) -> std::io::Result<Option<MerkleNode>>
+    {
+        if self.root_hash.is_none() {
+            return Ok(None);
+        }
+
+        Ok(Some(self.store.load(self.root_hash.unwrap())?))
+    }
+    
+    /// Récupère le chemin vers le bloc le plus à droite de l'arbre Merkle.
     pub fn right_traverse(&self) -> std::io::Result<Vec<MerkleNode>> {
         let mut path: Vec<MerkleNode> = vec![];
         let mut stack: Vec<BlockHash> = vec![];
@@ -71,4 +125,25 @@ impl<Store: crate::storage::Storage<BlockHash, MerkleNode>> MerkleTree<Store>
         return Ok(path);
     }
 
+}
+
+#[cfg(test)]
+pub mod tests {
+    use crate::block::tests::block_fixture;
+
+    use super::*;
+
+    #[test]
+    fn test_merkle_tree() -> std::io::Result<()>
+    {
+        let mut tree = MerkleTree::in_memory();
+        let hash = BlockHash::from(&block_fixture::<10>());
+        tree.insert(hash)?;
+
+        let root = tree.root()?.unwrap();
+
+        assert_eq!(root, MerkleNode::Leaf(hash));
+
+        Ok(())
+    }
 }

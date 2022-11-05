@@ -1,6 +1,6 @@
 use sha2::Digest;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Hash, Eq, Copy, Debug)]
 pub struct BlockHash(pub [u8; 32]);
 
 impl AsRef<[u8;32]> for BlockHash {

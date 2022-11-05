@@ -1,6 +1,9 @@
-use crate::hash::sha256_string;
+use std::collections::HashMap;
+use std::cell::RefCell;
+
+use crate::hash::{sha256_string};
 use crate::block::{Block, BlockHash};
-use crate::merkle::MerkleNode;
+use crate::merkle::{MerkleNode};
 use super::Storage;
 
 /// Stratégie I/O à base de systèmes de fichiers
@@ -17,15 +20,30 @@ impl<const BLOCK_LENGTH: usize> LocalBlockStorage<BLOCK_LENGTH>
     }
 }
 
-impl<const BLOCK_LENGTH: usize> Storage<BlockHash, Block<BLOCK_LENGTH>> for LocalBlockStorage<BLOCK_LENGTH>
+impl<const BLOCK_LENGTH: usize> Storage for LocalBlockStorage<BLOCK_LENGTH>
 {
-    fn save(&self, block: impl AsRef<Block<BLOCK_LENGTH>>) -> std::io::Result<()>
+    type K = BlockHash;
+    type V = Block<BLOCK_LENGTH>;
+
+    fn flush(&self) -> std::io::Result<()>
+    {
+        Ok(())
+    }
+
+    fn exist(&self, hash: impl AsRef<Self::K>) -> bool
+    {
+        let id = hex::encode(hash.as_ref()); 
+        let fp = self.directory.join(id);
+        fp.exists()
+    }
+
+    fn save(&self, block: impl AsRef<Self::V>) -> std::io::Result<()>
     {
         let fp = self.directory.join(sha256_string(block.as_ref()));
         std::fs::write(fp, block.as_ref())
     }
 
-    fn load(&self, hash: impl AsRef<BlockHash>) -> std::io::Result<Block<BLOCK_LENGTH>>
+    fn load(&self, hash: impl AsRef<Self::K>) -> std::io::Result<Self::V>
     {
         let id = hex::encode(hash.as_ref());
         let fp = self.directory.join(id);
@@ -36,19 +54,63 @@ impl<const BLOCK_LENGTH: usize> Storage<BlockHash, Block<BLOCK_LENGTH>> for Loca
     }          
 }
 
-pub struct LocalMerkleNodeStorage<BlockStore: Storage<BlockHash, Block<65>>> {
+pub type MerkleNodeBlock = Block<65>;
+
+#[derive(Default)]
+pub struct InMemoryMerkleNodeStorage {
+    map: RefCell<HashMap<BlockHash, MerkleNode>>
+}
+
+impl Storage for InMemoryMerkleNodeStorage {
+    type K = BlockHash;
+    type V = MerkleNode;
+
+    fn flush(&self) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn exist(&self, k: impl AsRef<Self::K>) -> bool {
+        self.map.borrow().contains_key(k.as_ref())
+    }
+
+    fn load(&self, k: impl AsRef<Self::K>) -> std::io::Result<Self::V> {
+        match self.map.borrow().get(k.as_ref()) {
+            Some(v) => Ok(v.clone()),
+            None => Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Not found"))
+        }
+    }
+
+    fn save(&self, v: impl AsRef<Self::V>) -> std::io::Result<()> {
+        let k = BlockHash::from(v.as_ref());
+        self.map.borrow_mut().insert(k, v.as_ref().clone());
+        Ok(())
+    }
+}
+
+pub struct LocalMerkleNodeStorage<BlockStore: Storage<K=BlockHash,V=MerkleNodeBlock>> {
     store: BlockStore
 }
 
-impl<BlockStore: Storage<BlockHash, Block<65>>> Storage<BlockHash, MerkleNode> for LocalMerkleNodeStorage<BlockStore>
+impl<BlockStore: Storage<K=BlockHash,V=MerkleNodeBlock>> Storage for LocalMerkleNodeStorage<BlockStore>
 {
+    type K = BlockHash;
+    type V = MerkleNode;
+
+    fn flush(&self) -> std::io::Result<()> {
+        self.store.flush()
+    }
+
+    fn exist(&self, k: impl AsRef<Self::K>) -> bool {
+        self.store.exist(k)    
+    }
+
     fn save(&self, node: impl AsRef<MerkleNode>) -> std::io::Result<()>
     {
-        let mut block = Block::<65>::new();
+        let mut block = MerkleNodeBlock::new();
         let data: [u8; 65] = node.as_ref().into();
         block.append(data, 0);
-        self.store.save(block)?;
-        Ok(())
+
+        self.store.save(block)
     }
 
     fn load(&self, hash: impl AsRef<BlockHash>) -> std::io::Result<MerkleNode>
