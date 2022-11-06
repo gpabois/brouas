@@ -1,27 +1,45 @@
-use crate::block::{BlockHash};
+use crate::block::{BlockHash, Block};
 use crate::storage::Storage;
 use crate::storage::impls::InMemoryMerkleNodeStorage;
+use std::borrow::{Borrow, BorrowMut};
+
+/// 128 bytes + 1
+pub struct MerkleBranch {
+    min: u32,
+    max: u32,
+    left: MerkleNode,
+    right: MerkleNode
+}
+
+/// 128 bytes + 1
+pub struct MerkleLeaf {
+    id: u32,
+    hash: BlockHash
+}
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum MerkleNode {
-    Branch(BlockHash, BlockHash),
-    Leaf(BlockHash)
+    Branch(MerkleBranch),
+    Leaf(MerkleLeaf)
 }
 
-pub type MerkleNodeBytes = [u8;65];
+pub type MerkleNodeBytes = [u8;129];
 
 impl From<&MerkleNode> for MerkleNodeBytes {
     fn from(node: &MerkleNode) -> Self {
         let mut data: [u8; 65] = [0; 65];
         
         match node {
-            MerkleNode::Branch(left_hash, right_hash) => {
+            MerkleNode::Branch(branch) => {
                 data[0] = 0x1;
-                data[1..33].copy_from_slice(&left_hash.0);
-                data[34..].copy_from_slice(&right_hash.0);
+                data[1..33].copy_from_slice(&branch.min);
+                data[33..65].copy_from_slice(&branch.left);
+                data[65..97].copy_from_slice(&branch.max);
+                data[97..].copy_from_slice(&branch.right);
             },
-            MerkleNode::Leaf(hash) => {
-                data[1..33].copy_from_slice(&hash.0);
+            MerkleNode::Leaf(leaf) => {
+                data[1..33].copy_from_slice(&leaf.id);
+                data[33..65].copy_from_slice(&leaf.hash);
             }
         }
 
@@ -88,6 +106,7 @@ impl<Store: Storage<K=BlockHash,V=MerkleNode>> MerkleTree<Store>
         if path.len() == 0 {
             self.root_hash = Some(BlockHash::from(&leaf));
         }
+        // Second cas on tombe sur une branche à moitié remplie
 
         Ok(())
     }
