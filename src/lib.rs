@@ -24,15 +24,20 @@ impl<K: Eq + std::hash::Hash, V: Clone> Storage for HashMap<K, V>
     }   
 }
 
-pub enum BrouasCell<Key, Hash> {
+pub enum BrouasBranchCell<Key, Hash> {
     Hash(Hash),
     Key(Key)
+}
+
+pub enum BrouasCell<'a, Hash, Key, Element> {
+    Branch(usize, &'a BrouasBranchCell<Key, Hash>),
+    Element(usize, &'a Element)
 }
 pub enum BrouasNode<const t: usize, Hash, Key, Element>
 {
     Branch{
         hash: Hash, 
-        children: Vec<BrouasCell<Hash, Key>>
+        children: Vec<BrouasBranchCell<Hash, Key>>
     },
     Leaf {
         hash: Hash, 
@@ -40,11 +45,19 @@ pub enum BrouasNode<const t: usize, Hash, Key, Element>
     }
 }
 
-impl<const t: usize, Hash, Key, Element> BrouasNode<t, Hash, Key, Element>
-{
-    let prevCell: Option<BrouasCell<Key, Hash>> = None;
-}
+impl<const t: usize, Hash, Key, Element> BrouasNode<t, Hash, Key, Element> {
+    // Lower or equal for either branch cell or leaf element
+    pub fn leq(&self, key: &Key) -> Option<usize> {
+        match self {
+            Self::Branch { hash, children } => {
+                let iterator = children.iter().enumerate();
+            },
+            Self::Leaf { hash, children } => {
 
+            }
+        }
+    }
+}
 
 pub struct BrouasTree<
         const t: usize, 
@@ -62,7 +75,22 @@ pub struct BrouasTree<
     root: Option<Hash>
 }
 
-pub type Path<const t: usize, Hash, Key, Element> = Vec<BrouasNode<t, Hash, Key, Element>>;
+#[derive(Default)]
+pub struct Path<const t: usize, Hash, Key, Element>
+{
+    current: BrouasNode<t, Hash, Key, Element>,
+    prev: Option<(usize, Path<t, Hash, Key, Element>)>
+}
+
+impl <const t: usize, Hash, Key, Element> Path<t, Hash, Key, Element>
+{
+    fn push(path: Self, node: BrouasNode<t, Hash, Key, Element>, index: usize) -> Self {
+        Self {
+            current: node,
+            prev: Some((index, path))
+        }
+    }
+}
 
 impl <const t: usize, 
     Store: Storage<
@@ -72,29 +100,43 @@ impl <const t: usize,
     Key: PartialOrd + Ord,
     Hash: Eq + std::hash::Hash, 
     Element: Clone
-> BrouasTree<t, Store, Key, Hash, Element> {
+> BrouasTree<t, Store, Key, Hash, Element> 
+{
 
-    pub fn get(&self, key: impl AsRef<Key>) -> Option<BrouasNode<t, Hash, Key, Element>>
+    pub fn get_node(&self, hash: impl AsRef<Hash>) -> Option<BrouasNode<t, Hash, Key, Element>>
     {
         
     }
 
-    pub fn search(&self, key: impl AsRef<Key>) -> Path<t, Hash, Key, Element>
+    pub fn search(&self, key: impl AsRef<Key>) -> Option<Path<t, Hash, Key, Element>>
     {
+        if self.root.is_none() 
+        {
+            return None;
+        }
+        rec_search()
+    }
 
+    pub fn rec_search(&self, key: impl AsRef<Key>, hash: Hash, mut path: Path<t, Hash, Key, Element>, index: usize) -> Path<t, Hash, Key, Element>
+    {
+        if let Some(node) = self.get_node(hash) 
+        {
+            if let Some((cindex, chash)) = self.search_node(key, &node)
+            {
+                path = rec_search(key, chash, path.push(node, index), cindex)
+            }
+        } 
+
+        path
     }
     
-    pub fn search_node(&self, key: impl AsRef<Key>, node: &BrouasNode<t, Hash, Key, Element>) -> Option<Hash>
+    pub fn search_node(&self, key: impl AsRef<Key>, node: &BrouasNode<t, Hash, Key, Element>) -> Option<(usize, Hash)>
     {
         match node {
             BrouasNode::Branch { hash, children } => {
-                children.iter().find(|p| {
-                    match p {
-                        BrouasCell::Hash(_) => false
-                        BrouasCell::Key(k) => 
-                    }
-                });
-            }
+                
+            },
+            _ => {}
         }
     }
 }
