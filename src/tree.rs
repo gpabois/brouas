@@ -6,9 +6,11 @@ mod node;
 mod leaf;
 mod branch;
 mod cells;
+mod alg;
 
 pub use tree::*;
 pub use node::*;
 pub use leaf::*;
 pub use branch::*;
 pub use cells::*;
+pub use alg::*;
