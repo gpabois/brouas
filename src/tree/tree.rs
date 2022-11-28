@@ -35,7 +35,7 @@ impl<Hash: Clone + PartialEq> TreeRef<Hash>
 
     pub fn get_root<'a>(&'a self) -> Option<&'a NodeRef<Hash>>
     {
-        return self.root;
+        return self.root.as_ref();
     }
 }
 
@@ -46,4 +46,5 @@ where Hash: Clone + PartialEq, Nodes: crate::tree::node::traits::Nodes<SIZE>
     tree_ref: TreeRef<Hash>,
     node: Nodes
 }
+
 
