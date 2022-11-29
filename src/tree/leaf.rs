@@ -24,8 +24,10 @@ pub mod traits
     
         // Insert cell
         fn insert(&mut self, key: <Self::Node as crate::tree::node::traits::Node>::Key, element: <Self::Node as crate::tree::node::traits::Node>::Element);
-    
-    }
+        
+        /// Compute the hash of the leaf
+        fn compute_hash(&self) -> <Self::Node as crate::tree::node::traits::Node>::Hash;
+    }   
 }
 
 
@@ -78,5 +80,9 @@ where Node: crate::tree::node::traits::Node {
     fn insert(&mut self, key: Node::Key, element: Node::Element)
     {
         self.cells.insert(key, element);
+    }
+
+    fn compute_hash(&self) -> <Self::Node as crate::tree::node::traits::Node>::Hash {
+        todo!()
     }
 }

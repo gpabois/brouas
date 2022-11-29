@@ -33,6 +33,8 @@ pub mod traits {
         /// Compute the hash
         fn compute_hash<Nodes: BorrowNode<Self::Node>>(&self, nodes: &Nodes) -> <Self::Node as Node>::Hash;
 
+        /// 
+        fn is_full(&self) -> bool;
     }
      
 }
@@ -89,5 +91,9 @@ where Node: crate::tree::node::traits::Node
     fn compute_hash<Nodes: BorrowNode<Self::Node>>(&self, _nodes: &Nodes) -> <Self::Node as crate::tree::node::traits::Node>::Hash 
     {
         todo!()
+    }
+
+    fn is_full(&self) -> bool {
+        self.cells.is_full()
     }
 }

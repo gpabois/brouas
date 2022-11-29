@@ -1,7 +1,8 @@
 use crate::arena::{tl_arena::TLArena, traits::Arena};
 
 use super::{NodeRef, Leaf, Branch};
-
+use super::leaf::traits::Leaf as TLeaf;
+use super::branch::traits::Branch as TBranch;
 
 pub enum NodeType<Branch, Leaf>
 where Branch: crate::tree::branch::traits::Branch,
@@ -137,7 +138,7 @@ pub mod traits {
         fn get_hash(&self) -> Option<Self::Hash>;
 
         /// Split the node
-        fn split(&self) -> (Self::Key, Self);
+        fn split(&mut self) -> (Self::Key, Self);
         
         /// The node is full ?
         fn is_full(&self) -> bool;
@@ -213,27 +214,47 @@ where   Hash: Clone + PartialEq,
     }
 
     fn children<'a>(&'a self) -> Vec<&'a NodeRef<Self::Hash>> {
-        todo!()
+        match self.r#as() {
+            NodeType::Branch(branch) => branch.children(),
+            _ => vec![]
+        }
     }
 
     fn compute_hash<Nodes: traits::BorrowNode<Self>>(&self, nodes: &Nodes) -> Self::Hash {
-        todo!()
+        match self.r#as() {
+            NodeType::Branch(branch) => branch.compute_hash(nodes),
+            NodeType::Leaf(leaf) => leaf.compute_hash()
+        }
     }
 
     fn set_hash(&mut self, hash: Self::Hash) {
-        todo!()
+        self.hash = Some(hash)
     }
 
     fn get_hash(&self) -> Option<Self::Hash> {
-        todo!()
+        return self.hash.clone()
     }
 
-    fn split(&self) -> (Self::Key, Self) {
-        todo!()
+    fn split(&mut self) -> (Self::Key, Self) {
+        match self.as_mut() {
+            NodeType::Branch(branch) => {
+                let (key, right_branch) = branch.split_branch();
+                let right_node = Self::from(right_branch);
+                (key, right_node)
+            },
+            NodeType::Leaf(leaf) => {
+                let (key, right_leaf) = leaf.split_leaf();
+                let right_node = Self::from(right_leaf);
+                (key, right_node)
+            }
+        }
     }
 
     fn is_full(&self) -> bool {
-        todo!()
+        match self.r#as() {
+            NodeType::Branch(branch) => branch.is_full(),
+            NodeType::Leaf(leaf) => leaf.is_full()
+        }
     }
 }
 
