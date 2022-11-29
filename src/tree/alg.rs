@@ -1,16 +1,16 @@
 use crate::arena::traits::TLElementRef;
 
 use super::{TreeRef, Path, NodeType, NodeRef};
+use crate::tree::branch::traits::Branch;
+use crate::tree::leaf::traits::Leaf;
 
 /// Search a node in the tree, based on the key
 fn search_node<
     'a,
-    Branch,
     Node,
     Nodes
 >(tree: &TreeRef<Node::Hash>, nodes: &'a Nodes, key: &Node::Key) -> Option<&'a Node> 
-    where Branch: crate::tree::branch::traits::Branch<Node=Node>,
-          Node: crate::tree::node::traits::Node<Branch=Branch>, 
+    where Node: crate::tree::node::traits::Node, 
           Nodes: crate::tree::node::traits::Nodes<Node=Node>
 {
     let node = search_path(tree, nodes, key)
@@ -22,11 +22,9 @@ fn search_node<
 
 fn search_leaf<
     'a,
-    Branch: crate::tree::branch::traits::Branch<Node=Node>  + 'static,
-    Leaf:   crate::tree::leaf::traits::Leaf<Node=Node>,
-    Node:   crate::tree::node::traits::Node<Branch=Branch, Leaf=Leaf> + 'static,
+    Node:   crate::tree::node::traits::Node + 'static,
     Nodes:  crate::tree::node::traits::Nodes<Node=Node>
->(tree: &TreeRef<Node::Hash>, nodes: &'a Nodes, key: &Node::Key) -> Option<&'a Leaf>
+>(tree: &TreeRef<Node::Hash>, nodes: &'a Nodes, key: &Node::Key) -> Option<&'a Node::Leaf>
 {
     search_node(tree, nodes, key)
     .and_then(|node| node.r#as().as_leaf())
@@ -35,9 +33,7 @@ fn search_leaf<
 /// Search an element in the tree
 pub fn search<
     'a,
-    Leaf:       crate::tree::leaf::traits::Leaf<Node=Node> + 'static,
-    Branch:     crate::tree::branch::traits::Branch<Node=Node>  + 'static,
-    Node:       crate::tree::node::traits::Node<Leaf=Leaf, Branch=Branch>  + 'static,
+    Node:       crate::tree::node::traits::Node + 'static,
     Nodes:      crate::tree::node::traits::Nodes<Node=Node>
 >(tree: &TreeRef<Node::Hash>, nodes: &'a Nodes, key: &Node::Key) -> Option<&'a Node::Element>
 {
@@ -80,9 +76,7 @@ fn search_path<
 }
 
 pub fn insert<
-    Leaf: crate::tree::leaf::traits::Leaf<Node=Node>,
-    Branch: crate::tree::branch::traits::Branch<Node=Node>,
-    Node: crate::tree::node::traits::Node<Leaf=Leaf, Branch=Branch>,
+    Node: crate::tree::node::traits::Node,
     Nodes: crate::tree::node::traits::Nodes<Node=Node>
 >(tree: &mut TreeRef<Node::Hash>, nodes: &mut Nodes, key: Node::Key, element: Node::Element)
 {
@@ -93,7 +87,7 @@ pub fn insert<
     .and_then(|node| node.as_mut().as_mut_leaf()) {
         leaf.insert(key, element);
     } else if path.last().is_none() {
-        let node: Node = Leaf::new(key, element).into();
+        let node: Node = Node::Leaf::new(key, element).into();
         let node_ref = nodes.allocate(node);
         tree.set_root(Some(node_ref));
     } else {
@@ -104,8 +98,7 @@ pub fn insert<
 }
 
 fn split_if_required<
-    Branch: crate::tree::branch::traits::Branch<Node=Node>,
-    Node:   crate::tree::node::traits::Node<Branch=Branch>,
+    Node:   crate::tree::node::traits::Node,
     Nodes:  crate::tree::node::traits::Nodes<Node=Node>
 >(tree: &mut TreeRef<Node::Hash>, nodes: &mut Nodes, mut path: Path<Node::Hash>)
 {
@@ -122,12 +115,12 @@ while let Some(node_ref) = path.pop()
             .and_then(|node| node.as_mut().as_mut_branch())
             {
                 Some(parent_branch) => {
-                    Branch::insert(parent_branch, node_ref.clone(), key, right_node_ref);
+                    Node::Branch::insert(parent_branch, node_ref.clone(), key, right_node_ref);
                 }
                 None => {
                     let root_ref = nodes.allocate(
                         Node::from(
-                            Branch::new(node_ref.clone(), key, right_node_ref)
+                            Node::Branch::new(node_ref.clone(), key, right_node_ref)
                         )
                     );
                     
