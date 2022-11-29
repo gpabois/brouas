@@ -13,7 +13,6 @@ pub mod traits {
     /// A branch of a Merkle B+ Tree
     pub trait Branch
     {
-        const SIZE: usize;
         type Node: Node;
 
         /// Create a branch
@@ -41,18 +40,18 @@ pub mod traits {
 pub struct Branch<Node>
 where Node: crate::tree::node::traits::Node
 {
-    cells: BranchCells<Node::SIZE, Node::Key, Node::Hash>
+    cells: BranchCells<Node>
 }
 
 impl<Node> Branch<Node>
 where Node: crate::tree::node::traits::Node
 {
-    fn new_from_cells(cells: BranchCells<Node::SIZE, Node::Key, Node::Hash>) -> Self {
+    fn new_from_cells(cells: BranchCells<Node>) -> Self {
         Self {cells: cells}
     } 
 }
 
-impl<const SIZE: usize, Hash, Key, Node> TraitBranch for Branch<Node>
+impl<Node> TraitBranch for Branch<Node>
 where Node: crate::tree::node::traits::Node
 {
     type Node = Node;

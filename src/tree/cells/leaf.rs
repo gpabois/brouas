@@ -32,59 +32,60 @@ impl<Key: PartialOrd + PartialEq + Clone, Element: Clone> std::cmp::PartialEq<Ke
 }
 
 pub mod traits {
-    pub trait LeafCells<const SIZE: usize>
+    pub trait LeafCells
     {
-        type Key: PartialEq + PartialOrd;
-        type Element;
+        type Node: crate::tree::node::traits::Node;
     
-        fn search<'a>(&'a self, k: &Self::Key) -> Option<&'a Self::Element>;
-        fn split(&mut self) -> (Self::Key, Self);
+        fn search<'a>(&'a self, k: &<Self::Node as crate::tree::node::traits::Node>::Key) -> Option<&'a <Self::Node as crate::tree::node::traits::Node>::Element>;
+        fn split(&mut self) -> (<Self::Node as crate::tree::node::traits::Node>::Key, Self);
         fn is_full(&self) -> bool;
-        fn insert(&mut self, key: Self::Key, element: Self::Element);
+        fn insert(&mut self, key: <Self::Node as crate::tree::node::traits::Node>::Key, element: <Self::Node as crate::tree::node::traits::Node>::Element);
     }
 }
 
 use self::traits::LeafCells as TraitLeafCells;
 
-pub struct LeafCells<const SIZE: usize, Key: PartialEq + PartialOrd + Clone, Element: Clone> 
+pub struct LeafCells<Node> 
+where Node: crate::tree::node::traits::Node
 {
-    cells: Vec<LeafCell<Key, Element>>
+    cells: Vec<LeafCell<Node::Key, Node::Element>>
 }
 
-impl<const SIZE: usize, Key: PartialEq + Ord + Clone, Element: Clone> LeafCells<SIZE, Key, Element>
+impl<Node> LeafCells<Node>
+where Node: crate::tree::node::traits::Node
 {
-    pub fn new(cell: LeafCell<Key, Element>) -> Self {
+    pub fn new(cell: LeafCell<Node::Key, Node::Element>) -> Self {
         Self{
             cells: vec![cell]
         }
     }
 }
 
-impl<const SIZE: usize, Key: PartialEq + Ord + Clone, Element: Clone> TraitLeafCells<SIZE> for LeafCells<SIZE, Key, Element>
+impl<Node> TraitLeafCells for LeafCells<Node>
+where Node: crate::tree::node::traits::Node
 {
-    type Key = Key;
-    type Element = Element;
+    type Node = Node;
 
-    fn search<'a>(&'a self, key: &Self::Key) -> Option<&'a Self::Element> {
+    fn search<'a>(&'a self, key: &Node::Key) -> Option<&'a Node::Element> {
         self.cells
         .iter()
         .find(|c| *c == key)
         .and_then(|c| Some(&(c.1)))
     }
 
-    fn split(&mut self) -> (Self::Key, Self)
+    fn split(&mut self) -> (Node::Key, Self)
     {
-        let (left, right) = self.cells.split_at(SIZE/2);
+        let (left, right) = self.cells.split_at(Node::SIZE/2);
         let right_cells = Self {cells: right.iter().cloned().collect()};
         self.cells = left.iter().cloned().collect();
         (right_cells.cells[0].0.clone(), right_cells)
     }
 
     fn is_full(&self) -> bool {
-        self.cells.len() >= SIZE
+        self.cells.len() >= Node::SIZE
     }
 
-    fn insert(&mut self, key: Self::Key, element: Self::Element) {
+    fn insert(&mut self, key: Node::Key, element: Node::Element) {
         self.cells.push(LeafCell(key, element));
         self.cells.sort_unstable_by_key(|c| c.0.clone());
     }

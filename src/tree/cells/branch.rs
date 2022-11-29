@@ -1,4 +1,4 @@
-use crate::tree::NodeRef;
+use crate::tree::{NodeRef, branch::traits::Branch};
 
 use self::traits::BranchCells as TraitBranchCells;
 
@@ -7,35 +7,34 @@ pub mod traits {
 
     pub trait BranchCells
     {
-        type Key: PartialOrd + PartialEq;
-        type Hash: Clone + PartialEq;
+        type Node: crate::tree::node::traits::Node;
         
         /// New branch cells
-        fn new(left: NodeRef<Self::Hash>, key: Self::Key, right: NodeRef<Self::Hash>) -> Self;
+        fn new(left: NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>, key: <Self::Node as crate::tree::node::traits::Node>::Key, right: NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>) -> Self;
         /// Search the node based on the key
-        fn search<'a>(&'a self, k: &Self::Key) -> &'a NodeRef<Self::Hash>;
+        fn search<'a>(&'a self, k: &<Self::Node as crate::tree::node::traits::Node>::Key) -> &'a NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>;
         /// Split the cells
-        fn split(&mut self) -> (Self::Key, Self);
+        fn split(&mut self) -> (<Self::Node as crate::tree::node::traits::Node>::Key, Self);
         /// The cells are full
         fn is_full(&self) -> bool;
         /// Insert a cell
-        fn insert(&mut self, left: NodeRef<Self::Hash>, key: Self::Key, right: NodeRef<Self::Hash>);
+        fn insert(&mut self, left: NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>, key: <Self::Node as crate::tree::node::traits::Node>::Key, right: NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>);
     }
 }
 
 
-pub struct BranchCells<const SIZE: usize, Key: PartialEq + PartialOrd, Hash: Clone + PartialEq>
+pub struct BranchCells<Node>
+where Node: crate::tree::node::traits::Node
 {
-    head: NodeRef<Hash>,
-    cells: Vec<BranchCell<Key, Hash>>
+    head: NodeRef<Node::Hash>,
+    cells: Vec<BranchCell<Node>>
 } 
 
-impl<const SIZE: usize, Key: PartialOrd + PartialEq + Clone, Hash: Clone + PartialEq> TraitBranchCells for BranchCells<SIZE, Key, Hash>
+impl<Node> TraitBranchCells for BranchCells<Node>
+where Node: crate::tree::node::traits::Node
 {
-    type Key = Key;
-    type Hash = Hash;
-    
-    fn search<'a>(&'a self, k: &Self::Key) -> &'a NodeRef<Self::Hash>
+    type Node = Node;
+    fn search<'a>(&'a self, k: &<Self::Node as crate::tree::node::traits::Node>::Key) -> &'a NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>
     {
         let mut node = &self.head;
         if let Some(n) = self.cells
@@ -49,8 +48,8 @@ impl<const SIZE: usize, Key: PartialOrd + PartialEq + Clone, Hash: Clone + Parti
     }
  
 
-    fn split(&mut self) -> (Self::Key, Self) {
-        let middle_index = SIZE/2;
+    fn split(&mut self) -> (<Self::Node as crate::tree::node::traits::Node>::Key, Self) {
+        let middle_index = <Self::Node as crate::tree::node::traits::Node>::SIZE/2;
         let lefts = &self.cells[0..middle_index - 1];
         let rights = &self.cells[middle_index + 1..];
         let middle_cell = self.cells[middle_index].clone();
@@ -67,10 +66,10 @@ impl<const SIZE: usize, Key: PartialOrd + PartialEq + Clone, Hash: Clone + Parti
     }
 
     fn is_full(&self) -> bool {
-        self.cells.len() >= SIZE
+        self.cells.len() >= <Self::Node as crate::tree::node::traits::Node>::SIZE
     }
 
-    fn insert(&mut self, left: NodeRef<Self::Hash>, key: Self::Key, right: NodeRef<Self::Hash>) {
+    fn insert(&mut self, left: NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>, key: <Self::Node as crate::tree::node::traits::Node>::Key, right: NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>) {
         let (idx, cell) = self.cells
         .iter_mut()
         .enumerate()
@@ -83,7 +82,7 @@ impl<const SIZE: usize, Key: PartialOrd + PartialEq + Clone, Hash: Clone + Parti
         self.cells.insert(idx + 1, BranchCell(right_key, right));
     }
 
-    fn new(left: NodeRef<Self::Hash>, key: Self::Key, right: NodeRef<Self::Hash>) -> Self {
+    fn new(left: NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>, key: <Self::Node as crate::tree::node::traits::Node>::Key, right: NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>) -> Self {
         Self {
             head: left,
             cells: vec![BranchCell(key, right)]
@@ -91,26 +90,32 @@ impl<const SIZE: usize, Key: PartialOrd + PartialEq + Clone, Hash: Clone + Parti
     }
 }
 
-#[derive(Clone)]
-pub struct BranchCell<K: PartialOrd + PartialEq, H: Clone + PartialEq>(K, NodeRef<H>);
+pub struct BranchCell<Node: crate::tree::node::traits::Node>(Node::Key, NodeRef<Node::Hash>);
 
-impl<K: PartialOrd + PartialEq, H: Clone + PartialEq> std::cmp::PartialOrd<K> for BranchCell<K, H>
+impl<Node: crate::tree::node::traits::Node> Clone for BranchCell<Node>
 {
-    fn partial_cmp(&self, other: &K) -> Option<std::cmp::Ordering> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone(), self.1.clone())
+    }
+}
+
+impl<Node: crate::tree::node::traits::Node> std::cmp::PartialOrd<Node::Key> for BranchCell<Node>
+{
+    fn partial_cmp(&self, other: &Node::Key) -> Option<std::cmp::Ordering> {
         self.0.partial_cmp(other)
     }
 }
 
-impl<K: PartialOrd + PartialEq, H: Clone + PartialEq> std::cmp::PartialOrd<&K> for &mut BranchCell<K, H>
+impl<Node: crate::tree::node::traits::Node>  std::cmp::PartialOrd<&Node::Key> for &mut BranchCell<Node>
 {
-    fn partial_cmp(&self, other: &&K) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &&Node::Key) -> Option<std::cmp::Ordering> {
         self.0.partial_cmp(other)
     }
 }
 
-impl<K: PartialOrd + PartialEq, H: Clone + PartialEq> std::cmp::PartialEq<K> for BranchCell<K, H>
+impl<Node: crate::tree::node::traits::Node>  std::cmp::PartialEq<Node::Key> for BranchCell<Node>
 {
-    fn eq(&self, other: &K) -> bool {
+    fn eq(&self, other: &Node::Key) -> bool {
         self.0 == *other
     }
 }

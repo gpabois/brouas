@@ -8,63 +8,55 @@ pub mod traits
 {
     pub trait Leaf
     {
-        const SIZE: usize;
-        type Hash;
-        type Key;
-        type Element;
-        
+        type Node: crate::tree::node::traits::Node;
+
         /// Create a new leaf
-        fn new(key: Self::Key, element: Self::Element) -> Self;
+        fn new(key: <Self::Node as crate::tree::node::traits::Node>::Key, element: <Self::Node as crate::tree::node::traits::Node>::Element) -> Self;
      
         /// Search element behind key
-        fn search<'a>(&'a self, key: &Self::Key) -> Option<&'a Self::Element>;
+        fn search<'a>(&'a self, key: &<Self::Node as crate::tree::node::traits::Node>::Key) -> Option<&'a <Self::Node as crate::tree::node::traits::Node>::Element>;
 
         // Check if the leaf is full
         fn is_full(&self) -> bool;
     
         // Split the leaf
-        fn split_leaf(&mut self) -> (Self::Key, Self) where Self: Sized;
+        fn split_leaf(&mut self) -> (<Self::Node as crate::tree::node::traits::Node>::Key, Self) where Self: Sized;
     
         // Insert cell
-        fn insert(&mut self, key: Self::Key, element: Self::Element);
+        fn insert(&mut self, key: <Self::Node as crate::tree::node::traits::Node>::Key, element: <Self::Node as crate::tree::node::traits::Node>::Element);
     
     }
 }
 
 
-pub struct Leaf<const SIZE: usize, Hash, Key: PartialEq + Ord + Clone, Element: Clone>
+pub struct Leaf<Node>
+where Node: crate::tree::node::traits::Node
 {
-    _h: PhantomData<Hash>,
-    cells: LeafCells<SIZE, Key, Element>
+    cells: LeafCells<Node>
 }
 
-impl<const SIZE: usize, Hash, Key: PartialEq + Ord + Clone, Element: Clone> Leaf<SIZE, Hash, Key, Element>
+impl<Node> Leaf<Node>
+where Node: crate::tree::node::traits::Node
 {
-    fn from_cells(cells: impl Into<LeafCells<SIZE, Key, Element>>) -> Self {
+    fn from_cells(cells: impl Into<LeafCells<Node>>) -> Self {
         Self {
-            _h: Default::default(),
             cells: cells.into()
         }
     }
 }
 
-impl<const SIZE: usize, Hash, Key, Element> self::traits::Leaf for Leaf<SIZE, Hash, Key, Element>
-where Key: PartialEq + Ord + Clone, 
-      Element: Clone {
-    const SIZE: usize = SIZE;
-    type Hash = Hash;
-    type Key = Key;
-    type Element = Element;
+impl<Node> self::traits::Leaf for Leaf<Node>
+where Node: crate::tree::node::traits::Node {
+    type Node = Node;
 
-    fn new(key: Self::Key, element: Self::Element) -> Self {
+    fn new(key: Node::Key, element: Node::Element) -> Self {
         Self {
-            _h: Default::default(),
             cells: LeafCells::new(LeafCell::new(key, element))
         }
     }
 
     /// Search element behind key
-    fn search<'a>(&'a self, key: &Self::Key) -> Option<&'a Self::Element>
+    fn search<'a>(&'a self, key: &Node::Key) -> Option<&'a Node::Element>
     {
         self.cells.search(key)
     }
@@ -76,14 +68,14 @@ where Key: PartialEq + Ord + Clone,
     }
 
     // Split the leaf
-    fn split_leaf(&mut self) -> (Self::Key, Self) where Self: Sized
+    fn split_leaf(&mut self) -> (Node::Key, Self) where Self: Sized
     {
         let (key, right_cells) = self.cells.split();
         (key, Self::from_cells(right_cells))
     }
 
     // Insert cell
-    fn insert(&mut self, key: Self::Key, element: Self::Element)
+    fn insert(&mut self, key: Node::Key, element: Node::Element)
     {
         self.cells.insert(key, element);
     }

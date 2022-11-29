@@ -1,6 +1,6 @@
 use crate::arena::{tl_arena::TLArena, traits::Arena};
 
-use super::NodeRef;
+use super::{NodeRef, Leaf, Branch};
 
 
 pub enum NodeType<Branch, Leaf>
@@ -63,7 +63,7 @@ pub mod traits {
     pub trait BorrowMutNode<Node>
     where Node: self::Node
     {
-        fn borrow_mut_node<'a>(&'a self, node_ref: &NodeRef<Node::Hash>) -> Option<&'a mut Node>;
+        fn borrow_mut_node<'a>(&'a mut self, node_ref: &NodeRef<Node::Hash>) -> Option<&'a mut Node>;
     }
     
     /// Nodes collection trait
@@ -77,8 +77,8 @@ pub mod traits {
         /// Returns the loaded nodes, from bottom to top, starting at the top
         fn get_loaded_nodes(&self, root_ref: NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>) -> VecDeque<NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>>
         {
-            let mut loaded_nodes: Vec<(usize, NodeRef<Self::Hash>)> = Default::default();
-            let mut queue: VecDeque<(usize, NodeRef<Self::Hash>)> = Default::default();
+            let mut loaded_nodes: Vec<(usize, NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>)> = Default::default();
+            let mut queue: VecDeque<(usize, NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>)> = Default::default();
             
             queue.push_back((0, root_ref));
             
@@ -88,7 +88,7 @@ pub mod traits {
                 {
                     let node = self.borrow_node(&node_ref).unwrap();
                     
-                    let mut children_ref: VecDeque<(usize, NodeRef<Self::Hash>)> = node
+                    let mut children_ref: VecDeque<(usize, NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>)> = node
                     .children()
                     .into_iter()
                     .cloned()
@@ -116,15 +116,16 @@ pub mod traits {
     pub trait Node: From<Self::Leaf> + From<Self::Branch> + PartialEq<Self::Hash>
     {
         const SIZE: usize;
-        type Key;
 
+        type Key: Clone + PartialOrd + PartialEq + Ord;
         type Hash: Clone + PartialEq;
+        type Element: Clone;
 
-        type Leaf: crate::tree::leaf::traits::Leaf<Hash=Self::Hash, Key=Self::Key>;
+        type Leaf: crate::tree::leaf::traits::Leaf<Node=Self>;
         type Branch: crate::tree::branch::traits::Branch<Node=Self>;
 
         fn r#as(&self) -> &NodeType<Self::Branch, Self::Leaf>;
-        fn as_mut(&self) -> &mut NodeType<Self::Branch, Self::Leaf>;
+        fn as_mut(&mut self) -> &mut NodeType<Self::Branch, Self::Leaf>;
 
         /// Get the children of the node
         fn children<'a>(&'a self) -> Vec<&'a NodeRef<Self::Hash>>;
@@ -142,6 +143,98 @@ pub mod traits {
         fn is_full(&self) -> bool;
     }
 
+}
+
+pub struct Node<const SIZE: usize, Hash, Key, Element>
+where   Hash: Clone + PartialEq,
+        Key: PartialEq + PartialOrd + Ord + Clone,
+        Element: Clone
+{
+    node_type: NodeType<Branch<Self>, Leaf<Self>>,
+    hash: Option<Hash>
+}
+
+impl<const SIZE: usize, Hash, Key, Element> From<Branch<Self>> for Node<SIZE, Hash, Key, Element>
+where   Hash: Clone + PartialEq,
+        Key: PartialEq + PartialOrd + Ord + Clone,
+        Element: Clone
+{
+    fn from(branch: Branch<Self>) -> Self {
+        Self {
+            node_type: NodeType::Branch(branch),
+            hash: None
+        }
+    }
+}
+
+impl<const SIZE: usize, Hash, Key, Element> From<Leaf<Self>> for Node<SIZE, Hash, Key, Element>
+where   Hash: Clone + PartialEq,
+        Key: PartialEq + PartialOrd + Ord + Clone,
+        Element: Clone
+{
+    fn from(leaf: Leaf<Self>) -> Self {
+        Self {
+            node_type: NodeType::Leaf(leaf),
+            hash: None
+        }
+    }
+}
+
+impl<const SIZE: usize, Hash, Key, Element> PartialEq<Hash> for Node<SIZE, Hash, Key, Element>
+where   Hash: Clone + PartialEq,
+        Key: PartialEq + PartialOrd + Ord + Clone,
+        Element: Clone
+{
+    fn eq(&self, other: &Hash) -> bool {
+        self.hash.eq(&Some(other.clone()))
+    }
+}
+
+impl<const SIZE: usize, Hash, Key, Element> self::traits::Node for Node<SIZE, Hash, Key, Element>
+where   Hash: Clone + PartialEq,
+        Key: PartialEq + PartialOrd + Ord + Clone,
+        Element: Clone
+{
+    const SIZE: usize = SIZE;
+
+    type Key        = Key;
+    type Hash       = Hash;
+    type Element    = Element;
+
+    type Leaf       = Leaf<Self>;
+    type Branch     = Branch<Self>;
+
+    fn r#as(&self) -> &NodeType<Self::Branch, Self::Leaf> {
+        &self.node_type
+    }
+
+    fn as_mut(&mut self) -> &mut NodeType<Self::Branch, Self::Leaf> {
+       &mut self.node_type
+    }
+
+    fn children<'a>(&'a self) -> Vec<&'a NodeRef<Self::Hash>> {
+        todo!()
+    }
+
+    fn compute_hash<Nodes: traits::BorrowNode<Self>>(&self, nodes: &Nodes) -> Self::Hash {
+        todo!()
+    }
+
+    fn set_hash(&mut self, hash: Self::Hash) {
+        todo!()
+    }
+
+    fn get_hash(&self) -> Option<Self::Hash> {
+        todo!()
+    }
+
+    fn split(&self) -> (Self::Key, Self) {
+        todo!()
+    }
+
+    fn is_full(&self) -> bool {
+        todo!()
+    }
 }
 
 pub struct Nodes<Node, Storage>
@@ -180,7 +273,7 @@ where
     Node: crate::tree::node::traits::Node,
     Storage: crate::storage::traits::Storage<Key=Node::Hash, Value=Node>
 {
-    fn borrow_mut_node<'a>(&'a self, node_ref: &NodeRef<<Node as traits::Node>::Hash>) -> Option<&'a mut Node> {
+    fn borrow_mut_node<'a>(&'a mut self, node_ref: &NodeRef<<Node as traits::Node>::Hash>) -> Option<&'a mut Node> {
         self.arena.borrow_mut_element(node_ref)
     }
 }

@@ -23,7 +23,7 @@ fn search_node<
 fn search_leaf<
     'a,
     Branch: crate::tree::branch::traits::Branch<Node=Node>  + 'static,
-    Leaf:   crate::tree::leaf::traits::Leaf<Key=Node::Key>,
+    Leaf:   crate::tree::leaf::traits::Leaf<Node=Node>,
     Node:   crate::tree::node::traits::Node<Branch=Branch, Leaf=Leaf> + 'static,
     Nodes:  crate::tree::node::traits::Nodes<Node=Node>
 >(tree: &TreeRef<Node::Hash>, nodes: &'a Nodes, key: &Node::Key) -> Option<&'a Leaf>
@@ -35,12 +35,11 @@ fn search_leaf<
 /// Search an element in the tree
 pub fn search<
     'a,
-    Element,
-    Leaf:       crate::tree::leaf::traits::Leaf<Key=Node::Key, Element=Element> + 'static,
+    Leaf:       crate::tree::leaf::traits::Leaf<Node=Node> + 'static,
     Branch:     crate::tree::branch::traits::Branch<Node=Node>  + 'static,
     Node:       crate::tree::node::traits::Node<Leaf=Leaf, Branch=Branch>  + 'static,
     Nodes:      crate::tree::node::traits::Nodes<Node=Node>
->(tree: &TreeRef<Node::Hash>, nodes: &'a Nodes, key: &Node::Key) -> Option<&'a Element>
+>(tree: &TreeRef<Node::Hash>, nodes: &'a Nodes, key: &Node::Key) -> Option<&'a Node::Element>
 {
     search_leaf(tree, nodes, key)
     .and_then(|leaf| leaf.search(key))
@@ -81,12 +80,11 @@ fn search_path<
 }
 
 pub fn insert<
-    Element,
-    Leaf: crate::tree::leaf::traits::Leaf< Key=Node::Key, Element=Element>,
+    Leaf: crate::tree::leaf::traits::Leaf<Node=Node>,
     Branch: crate::tree::branch::traits::Branch<Node=Node>,
     Node: crate::tree::node::traits::Node<Leaf=Leaf, Branch=Branch>,
     Nodes: crate::tree::node::traits::Nodes<Node=Node>
->(tree: &mut TreeRef<Node::Hash>, nodes: &mut Nodes, key: Node::Key, element: Element)
+>(tree: &mut TreeRef<Node::Hash>, nodes: &mut Nodes, key: Node::Key, element: Node::Element)
 {
     let path = search_path(tree, nodes, &key);
 
