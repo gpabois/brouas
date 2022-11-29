@@ -5,6 +5,10 @@ pub struct Path<Hash: Clone + PartialEq>(Vec<NodeRef<Hash>>);
 
 impl<Hash: Clone+PartialEq> Path<Hash>
 {
+    pub fn new() -> Self {
+        Self(vec![])
+    }
+    
     pub fn last<'a>(&'a self) -> Option<&'a NodeRef<Hash>>
     {
         self.0.last()
@@ -22,7 +26,7 @@ impl<Hash: Clone+PartialEq> Path<Hash>
 }
 
 #[derive(Default)]
-pub struct TreeRef<Hash: Clone + PartialEq>{
+pub struct TreeRef<Hash: Clone + PartialEq> {
     root: Option<NodeRef<Hash>>
 }
 
@@ -41,7 +45,8 @@ impl<Hash: Clone + PartialEq> TreeRef<Hash>
 
 /// Merkle B+ Tree
 pub struct MPBTree<const SIZE: usize, Hash, Nodes> 
-where Hash: Clone + PartialEq, Nodes: crate::tree::node::traits::Nodes<SIZE>
+where Hash: Clone + PartialEq, 
+      Nodes: crate::tree::node::traits::Nodes
 {
     tree_ref: TreeRef<Hash>,
     node: Nodes

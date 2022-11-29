@@ -1,19 +1,17 @@
+use crate::arena::traits::TLElementRef;
+
 use super::{TreeRef, Path, NodeType, NodeRef};
-use super::node::traits::Node;
 
 /// Search a node in the tree, based on the key
 fn search_node<
     'a,
-    const SIZE: usize,
-    Hash: Clone + PartialEq + Default,
-    Key,
     Branch,
     Node,
     Nodes
->(tree: &TreeRef<Hash>, nodes: &'a Nodes, key: &Key) -> Option<&'a Node> 
-    where Branch: crate::tree::branch::traits::Branch<SIZE, Hash=Hash, Key=Key>,
-          Node: crate::tree::node::traits::Node<SIZE, Hash=Hash, Key=Key, Branch=Branch>, 
-          Nodes: crate::tree::node::traits::Nodes<SIZE, Hash=Hash, Key=Key, Node=Node>
+>(tree: &TreeRef<Node::Hash>, nodes: &'a Nodes, key: &Node::Key) -> Option<&'a Node> 
+    where Branch: crate::tree::branch::traits::Branch<Node=Node>,
+          Node: crate::tree::node::traits::Node<Branch=Branch>, 
+          Nodes: crate::tree::node::traits::Nodes<Node=Node>
 {
     let node = search_path(tree, nodes, key)
     .last()
@@ -24,14 +22,11 @@ fn search_node<
 
 fn search_leaf<
     'a,
-    const SIZE: usize,
-    Hash: Clone + PartialEq + Default,
-    Key,
-    Branch: crate::tree::branch::traits::Branch<SIZE, Hash=Hash, Key=Key>,
-    Leaf:   crate::tree::leaf::traits::Leaf<SIZE, Key=Key>,
-    Node:   crate::tree::node::traits::Node<SIZE, Hash=Hash, Key=Key, Branch=Branch, Leaf=Leaf>,
-    Nodes:  crate::tree::node::traits::Nodes<SIZE, Hash=Hash, Key=Key, Node=Node>
->(tree: &TreeRef<Hash>, nodes: &'a Nodes, key: &Key) -> Option<&'a Leaf>
+    Branch: crate::tree::branch::traits::Branch<Node=Node>  + 'static,
+    Leaf:   crate::tree::leaf::traits::Leaf<Key=Node::Key>,
+    Node:   crate::tree::node::traits::Node<Branch=Branch, Leaf=Leaf> + 'static,
+    Nodes:  crate::tree::node::traits::Nodes<Node=Node>
+>(tree: &TreeRef<Node::Hash>, nodes: &'a Nodes, key: &Node::Key) -> Option<&'a Leaf>
 {
     search_node(tree, nodes, key)
     .and_then(|node| node.r#as().as_leaf())
@@ -40,14 +35,12 @@ fn search_leaf<
 /// Search an element in the tree
 pub fn search<
     'a,
-    const SIZE: usize,
-    Hash: Clone + PartialEq + Default,
-    Key, Element,
-    Leaf:       crate::tree::leaf::traits::Leaf<SIZE, Key=Key, Element=Element>,
-    Branch:     crate::tree::branch::traits::Branch<SIZE, Hash=Hash, Key=Key>,
-    Node:       crate::tree::node::traits::Node<SIZE, Hash=Hash, Key=Key, Leaf=Leaf, Branch=Branch>,
-    Nodes:      crate::tree::node::traits::Nodes<SIZE, Hash=Hash, Key=Key, Node=Node>
->(tree: &TreeRef<Hash>, nodes: &'a Nodes, key: &Key) -> Option<&'a Element>
+    Element,
+    Leaf:       crate::tree::leaf::traits::Leaf<Key=Node::Key, Element=Element> + 'static,
+    Branch:     crate::tree::branch::traits::Branch<Node=Node>  + 'static,
+    Node:       crate::tree::node::traits::Node<Leaf=Leaf, Branch=Branch>  + 'static,
+    Nodes:      crate::tree::node::traits::Nodes<Node=Node>
+>(tree: &TreeRef<Node::Hash>, nodes: &'a Nodes, key: &Node::Key) -> Option<&'a Element>
 {
     search_leaf(tree, nodes, key)
     .and_then(|leaf| leaf.search(key))
@@ -55,18 +48,15 @@ pub fn search<
 
 /// Search the element behind the key, if any
 fn search_path<
-    const SIZE: usize,
-    Key,
-    Hash: Clone + PartialEq + Default,
-    Branch: crate::tree::branch::traits::Branch<SIZE, Hash=Hash, Key=Key>,
-    Node: crate::tree::node::traits::Node<SIZE, Key=Key, Branch=Branch>,
-    Nodes: crate::tree::node::traits::Nodes<SIZE, Key=Key, Hash=Hash, Node=Node>
->(tree: &TreeRef<Hash>, nodes: &Nodes, key: &Key) -> Path<Hash>
+    Branch: crate::tree::branch::traits::Branch<Node=Node>,
+    Node: crate::tree::node::traits::Node<Branch=Branch>,
+    Nodes: crate::tree::node::traits::Nodes<Node=Node>
+>(tree: &TreeRef<Node::Hash>, nodes: &Nodes, key: &Node::Key) -> Path<Node::Hash>
 {
-    let mut path = Path::<Hash>::default();
-    let mut opt_node_ref = tree.get_root();
+    let mut path = Path::<Node::Hash>::new();
+    let mut opt_node_ref = tree.get_root().cloned();
 
-    while let Some(node_ref) = opt_node_ref 
+    while let Some(node_ref) = opt_node_ref.clone()
     {  
         if let Some(node) = nodes.borrow_node(&node_ref) 
         {
@@ -75,8 +65,8 @@ fn search_path<
             match node.r#as() {
                 // It's a branch, look for the right child node, if any
                 NodeType::Branch(branch) => {
-                    let child_node_ref: NodeRef<Hash> = Branch::search_node(branch, key).clone();
-                    opt_node_ref = Some(&child_node_ref);
+                    let child_node_ref: NodeRef<Node::Hash> = Branch::search_node(branch, key).clone();
+                    opt_node_ref = Some(child_node_ref);
                 },
                 // Reach a leaf, we cannot go further
                 _ => {break;}
@@ -91,14 +81,12 @@ fn search_path<
 }
 
 pub fn insert<
-    const SIZE: usize,
-    Hash: Clone + PartialEq + Default,
-    Key, Element,
-    Leaf: crate::tree::leaf::traits::Leaf<SIZE, Key=Key, Element=Element>,
-    Branch: crate::tree::branch::traits::Branch<SIZE, Hash=Hash, Key=Key>,
-    Node: crate::tree::node::traits::Node<SIZE, Key=Key, Hash=Hash, Leaf=Leaf, Branch=Branch>,
-    Nodes: crate::tree::node::traits::Nodes<SIZE, Key=Key, Hash=Hash, Node=Node>
->(tree: &mut TreeRef<Hash>, nodes: &mut Nodes, key: Key, element: Element)
+    Element,
+    Leaf: crate::tree::leaf::traits::Leaf< Key=Node::Key, Element=Element>,
+    Branch: crate::tree::branch::traits::Branch<Node=Node>,
+    Node: crate::tree::node::traits::Node<Leaf=Leaf, Branch=Branch>,
+    Nodes: crate::tree::node::traits::Nodes<Node=Node>
+>(tree: &mut TreeRef<Node::Hash>, nodes: &mut Nodes, key: Node::Key, element: Element)
 {
     let path = search_path(tree, nodes, &key);
 
@@ -118,13 +106,10 @@ pub fn insert<
 }
 
 fn split_if_required<
-    const SIZE: usize,
-    Key,
-    Hash: Clone + PartialEq, 
-    Branch: crate::tree::branch::traits::Branch<SIZE, Hash=Hash, Key=Key>,
-    Node:   crate::tree::node::traits::Node<SIZE, Key=Key, Hash=Hash, Branch=Branch>,
-    Nodes:  crate::tree::node::traits::Nodes<SIZE, Node=Node, Hash=Hash>
->(tree: &mut TreeRef<Hash>, nodes: &mut Nodes, mut path: Path<Hash>)
+    Branch: crate::tree::branch::traits::Branch<Node=Node>,
+    Node:   crate::tree::node::traits::Node<Branch=Branch>,
+    Nodes:  crate::tree::node::traits::Nodes<Node=Node>
+>(tree: &mut TreeRef<Node::Hash>, nodes: &mut Nodes, mut path: Path<Node::Hash>)
 {
 while let Some(node_ref) = path.pop()
 {
@@ -162,22 +147,21 @@ while let Some(node_ref) = path.pop()
 /// Commit the updated tree
 /// 1°) Recompute the hashes from loaded nodes from bottom to top
 /// 2°) Store the node based on the new hash
-/// 3°) If it's a branch, unload all the children ref
-/// 4°) Returns the list of updated nodes refs
+/// 3°) Returns the list of updated nodes refs
 pub fn commit<
-    const SIZE: usize,
-    Hash: Clone + PartialEq, 
-    Nodes: crate::tree::node::traits::Nodes<SIZE, Hash=Hash>
+    Node: crate::tree::node::traits::Node,
+    Nodes: crate::tree::node::traits::Nodes<Node=Node>
 
->(tree: &mut TreeRef<Hash>, nodes: &mut Nodes)  -> Vec<NodeRef<Hash>>
+>(tree: &mut TreeRef<Node::Hash>, nodes: &mut Nodes)  -> Vec<NodeRef<Node::Hash>>
 {
-    let mut updated_nodes: Vec<NodeRef<Hash>> = vec![];
+    let mut updated_nodes: Vec<NodeRef<Node::Hash>> = vec![];
 
-    if let Some(root_ref) = tree.get_root() {
+    // Clone avoid immutable borrow
+    if let Some(root_ref) = tree.get_root().cloned() {
 
         while let Some(node_ref) = nodes.get_loaded_nodes(root_ref.clone()).pop_front()
         {
-            let mut compute_node_hash: Option<Hash> = None;
+            let mut compute_node_hash: Option<Node::Hash> = None;
             {
                 if let Some(node) = nodes.borrow_node(&node_ref)
                 {
@@ -200,17 +184,19 @@ pub fn commit<
                 }
             }
 
+            /*
             // Now we unload the children ref
             if let Some(node) = nodes.borrow_mut_node(&node_ref) 
             {
                 node
-                .children_ref()
+                .children()
                 .iter()
                 .map(|cr|(cr, nodes.borrow_node(*cr)))
                 .filter(|(_cr, c)| c.is_some())
                 .map(|(cr, c)| (cr, c.unwrap()))
                 .for_each(|(cr, c)| cr.unload(c.get_hash().unwrap()))
             }
+            */
             
             if let Some(root_ref) = tree.get_root()
             {
@@ -220,7 +206,7 @@ pub fn commit<
                     .get_hash()
                     .unwrap();
                     
-                    tree.set_root(Some(NodeRef::from_key(hash)));
+                    tree.set_root(Some(NodeRef::from_foreign_index(hash)));
                 }
             }
         }

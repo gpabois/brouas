@@ -31,23 +31,27 @@ impl<Key: PartialOrd + PartialEq + Clone, Element: Clone> std::cmp::PartialEq<Ke
     }
 }
 
-pub trait LeafCells<const SIZE: usize>
-{
-    type Key: PartialEq + PartialOrd;
-    type Element;
-
-    fn search<'a>(&'a self, k: &Self::Key) -> Option<&'a Self::Element>;
-    fn split(&mut self) -> (Self::Key, Self);
-    fn is_full(&self) -> bool;
-    fn insert(&mut self, key: Self::Key, element: Self::Element);
+pub mod traits {
+    pub trait LeafCells<const SIZE: usize>
+    {
+        type Key: PartialEq + PartialOrd;
+        type Element;
+    
+        fn search<'a>(&'a self, k: &Self::Key) -> Option<&'a Self::Element>;
+        fn split(&mut self) -> (Self::Key, Self);
+        fn is_full(&self) -> bool;
+        fn insert(&mut self, key: Self::Key, element: Self::Element);
+    }
 }
 
-pub struct VecLeafCells<const SIZE: usize, Key: PartialEq + PartialOrd + Clone, Element: Clone> 
+use self::traits::LeafCells as TraitLeafCells;
+
+pub struct LeafCells<const SIZE: usize, Key: PartialEq + PartialOrd + Clone, Element: Clone> 
 {
     cells: Vec<LeafCell<Key, Element>>
 }
 
-impl<const SIZE: usize, Key: PartialEq + Ord + Clone, Element: Clone> VecLeafCells<SIZE, Key, Element>
+impl<const SIZE: usize, Key: PartialEq + Ord + Clone, Element: Clone> LeafCells<SIZE, Key, Element>
 {
     pub fn new(cell: LeafCell<Key, Element>) -> Self {
         Self{
@@ -56,7 +60,7 @@ impl<const SIZE: usize, Key: PartialEq + Ord + Clone, Element: Clone> VecLeafCel
     }
 }
 
-impl<const SIZE: usize, Key: PartialEq + Ord + Clone, Element: Clone> LeafCells<SIZE> for VecLeafCells<SIZE, Key, Element>
+impl<const SIZE: usize, Key: PartialEq + Ord + Clone, Element: Clone> TraitLeafCells<SIZE> for LeafCells<SIZE, Key, Element>
 {
     type Key = Key;
     type Element = Element;

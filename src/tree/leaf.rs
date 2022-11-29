@@ -1,50 +1,32 @@
 use std::marker::PhantomData;
 
-use crate::tree::cells::leaf::{VecLeafCells, LeafCell};
+use crate::tree::cells::leaf::{LeafCells, LeafCell};
+
+use super::cells::leaf::traits::LeafCells as TraitLeafCells;
 
 pub mod traits 
 {
-    use crate::tree::cells::leaf::LeafCells;
-
-    pub trait Leaf<const SIZE: usize>
+    pub trait Leaf
     {
+        const SIZE: usize;
         type Hash;
         type Key;
         type Element;
-        type Cells: LeafCells<SIZE, Key=Self::Key, Element=Self::Element>;
         
         /// Create a new leaf
         fn new(key: Self::Key, element: Self::Element) -> Self;
-        fn from_cells(cells: Self::Cells) -> Self;
-        /// Borrow cells
-        fn borrow_cells<'a>(&'a self) -> &'a Self::Cells;
-        fn borrow_mut_cells<'a>(&'a mut self) -> &'a mut Self::Cells;
-    
+     
         /// Search element behind key
-        fn search<'a>(&'a self, key: &Self::Key) -> Option<&'a Self::Element>
-        {
-            self.borrow_cells().search(key)
-        }
-    
-        // 
-        fn is_full(&self) -> bool
-        {
-            return self.borrow_cells().is_full();
-        }
+        fn search<'a>(&'a self, key: &Self::Key) -> Option<&'a Self::Element>;
+
+        // Check if the leaf is full
+        fn is_full(&self) -> bool;
     
         // Split the leaf
-        fn split_leaf(&mut self) -> (Self::Key, Self) where Self: Sized
-        {
-            let (key, right_cells) = self.borrow_mut_cells().split();
-            (key, Self::from_cells(right_cells))
-        }
+        fn split_leaf(&mut self) -> (Self::Key, Self) where Self: Sized;
     
         // Insert cell
-        fn insert(&mut self, key: Self::Key, element: Self::Element)
-        {
-            self.borrow_mut_cells().insert(key, element);
-        }
-    
+        fn insert(&mut self, key: Self::Key, element: Self::Element);
     
     }
 }
@@ -53,35 +35,56 @@ pub mod traits
 pub struct Leaf<const SIZE: usize, Hash, Key: PartialEq + Ord + Clone, Element: Clone>
 {
     _h: PhantomData<Hash>,
-    cells: VecLeafCells<SIZE, Key, Element>
+    cells: LeafCells<SIZE, Key, Element>
 }
 
-impl<const SIZE: usize, Hash, Key: PartialEq + Ord + Clone, Element: Clone> self::traits::Leaf<SIZE> for Leaf<SIZE, Hash, Key, Element>
+impl<const SIZE: usize, Hash, Key: PartialEq + Ord + Clone, Element: Clone> Leaf<SIZE, Hash, Key, Element>
 {
+    fn from_cells(cells: impl Into<LeafCells<SIZE, Key, Element>>) -> Self {
+        Self {
+            _h: Default::default(),
+            cells: cells.into()
+        }
+    }
+}
+
+impl<const SIZE: usize, Hash, Key, Element> self::traits::Leaf for Leaf<SIZE, Hash, Key, Element>
+where Key: PartialEq + Ord + Clone, 
+      Element: Clone {
+    const SIZE: usize = SIZE;
     type Hash = Hash;
     type Key = Key;
     type Element = Element;
-    type Cells = VecLeafCells<SIZE, Key, Element>;
 
     fn new(key: Self::Key, element: Self::Element) -> Self {
         Self {
             _h: Default::default(),
-            cells: VecLeafCells::new(LeafCell::new(key, element))
+            cells: LeafCells::new(LeafCell::new(key, element))
         }
     }
 
-    fn from_cells(cells: Self::Cells) -> Self {
-        Self {
-            _h: Default::default(),
-            cells: cells
-        }
+    /// Search element behind key
+    fn search<'a>(&'a self, key: &Self::Key) -> Option<&'a Self::Element>
+    {
+        self.cells.search(key)
     }
 
-    fn borrow_cells<'a>(&'a self) -> &'a Self::Cells {
-        &self.cells
+    // 
+    fn is_full(&self) -> bool
+    {
+        return self.cells.is_full();
     }
 
-    fn borrow_mut_cells<'a>(&'a mut self) -> &'a mut Self::Cells {
-        &mut self.cells
+    // Split the leaf
+    fn split_leaf(&mut self) -> (Self::Key, Self) where Self: Sized
+    {
+        let (key, right_cells) = self.cells.split();
+        (key, Self::from_cells(right_cells))
+    }
+
+    // Insert cell
+    fn insert(&mut self, key: Self::Key, element: Self::Element)
+    {
+        self.cells.insert(key, element);
     }
 }
