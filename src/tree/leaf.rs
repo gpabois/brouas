@@ -1,7 +1,4 @@
-use std::marker::PhantomData;
-
 use crate::tree::cells::leaf::{LeafCells, LeafCell};
-
 use super::cells::leaf::traits::LeafCells as TraitLeafCells;
 
 pub mod traits 
@@ -15,6 +12,7 @@ pub mod traits
      
         /// Search element behind key
         fn search<'a>(&'a self, key: &<Self::Node as crate::tree::node::traits::Node>::Key) -> Option<&'a <Self::Node as crate::tree::node::traits::Node>::Element>;
+        fn search_mut<'a>(&'a mut self, key: &<Self::Node as crate::tree::node::traits::Node>::Key) -> Option<&'a mut <Self::Node as crate::tree::node::traits::Node>::Element>;
 
         // Check if the leaf is full
         fn is_full(&self) -> bool;
@@ -31,6 +29,7 @@ pub mod traits
 }
 
 
+#[derive(Clone)]
 pub struct Leaf<Node>
 where Node: crate::tree::node::traits::Node
 {
@@ -62,7 +61,9 @@ where Node: crate::tree::node::traits::Node {
     {
         self.cells.search(key)
     }
-
+    fn search_mut<'a>(&'a mut self, key: &<Self::Node as crate::tree::node::traits::Node>::Key) -> Option<&'a mut <Self::Node as crate::tree::node::traits::Node>::Element> {
+        self.cells.search_mut(key)
+    }
     // 
     fn is_full(&self) -> bool
     {
@@ -85,4 +86,6 @@ where Node: crate::tree::node::traits::Node {
     fn compute_hash(&self) -> <Self::Node as crate::tree::node::traits::Node>::Hash {
         todo!()
     }
+
+
 }

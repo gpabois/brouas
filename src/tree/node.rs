@@ -1,9 +1,10 @@
-use crate::arena::{tl_arena::TLArena, traits::Arena};
+use crate::arena::{tl_arena::TLArena, tl_arena::traits::TLArena as TTLArena, traits::Arena};
 
 use super::{NodeRef, Leaf, Branch};
 use super::leaf::traits::Leaf as TLeaf;
 use super::branch::traits::Branch as TBranch;
 
+#[derive(Clone)]
 pub enum NodeType<Branch, Leaf>
 where Branch: crate::tree::branch::traits::Branch,
       Leaf: crate::tree::leaf::traits::Leaf
@@ -73,7 +74,7 @@ pub mod traits {
         + BorrowNode<Self::Node> 
         + Allocator<TLElementRef<<Self::Node as crate::tree::node::traits::Node>::Hash>, Self::Node>
     {
-        type Node: Node;
+        type Node: Node + 'static;
 
         /// Returns the loaded nodes, from bottom to top, starting at the top
         fn get_loaded_nodes(&self, root_ref: NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>) -> VecDeque<NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>>
@@ -114,7 +115,7 @@ pub mod traits {
     }
 
     /// The MBT Node Trait
-    pub trait Node: From<Self::Leaf> + From<Self::Branch> + PartialEq<Self::Hash>
+    pub trait Node: From<Self::Leaf> + From<Self::Branch> + PartialEq<Self::Hash> + Clone
     {
         const SIZE: usize;
 
@@ -146,6 +147,7 @@ pub mod traits {
 
 }
 
+#[derive(Clone)]
 pub struct Node<const SIZE: usize, Hash, Key, Element>
 where   Hash: Clone + PartialEq,
         Key: PartialEq + PartialOrd + Ord + Clone,
@@ -263,8 +265,31 @@ where
     Node: crate::tree::node::traits::Node,
     Storage: crate::storage::traits::Storage<Key=Node::Hash, Value=Node>
 {
-    arena: TLArena<Node::Hash, Node, Storage>
+    arena: TLArena<Storage>
 }
+
+impl<Node, Storage> Nodes<Node, Storage>
+where
+    Node: crate::tree::node::traits::Node,
+    Storage: crate::storage::traits::Storage<Key=Node::Hash, Value=Node>
+{
+    pub fn new(storage: Storage) -> Self {
+       Self {
+            arena: TLArena::new(storage)
+       }
+    }
+}
+
+impl<Node, Storage> From<Storage> for Nodes<Node, Storage>
+where
+    Node: crate::tree::node::traits::Node,
+    Storage: crate::storage::traits::Storage<Key=Node::Hash, Value=Node>
+{
+    fn from(storage: Storage) -> Self {
+       Self::new(storage)
+    }
+}
+
 
 impl<Node, Storage>
     crate::arena::traits::Allocator<NodeRef<Node::Hash>, Node> for Nodes<Node, Storage>
@@ -302,12 +327,13 @@ where
 impl<Node, Storage>
     self::traits::Nodes for Nodes<Node, Storage>
 where
-    Node: crate::tree::node::traits::Node,
+    Node: crate::tree::node::traits::Node + 'static,
     Storage: crate::storage::traits::Storage<Key=Node::Hash, Value=Node>
 {
     type Node = Node;
 
-    fn save_nodes(&mut self, nodes: Vec<super::NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>>) {
-        todo!()
+    fn save_nodes(&mut self, nodes: Vec<super::NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>>) 
+    {
+        self.arena.save_elements(nodes.into_iter());
     }
 }

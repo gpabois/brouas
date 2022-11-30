@@ -1,6 +1,7 @@
 use crate::arena::traits::TLElementRef;
 
-use super::{TreeRef, Path, NodeType, NodeRef};
+use super::error::TreeError;
+use super::{Tree, Path, NodeType, NodeRef};
 use crate::tree::branch::traits::Branch;
 use crate::tree::leaf::traits::Leaf;
 
@@ -9,25 +10,75 @@ fn search_node<
     'a,
     Node,
     Nodes
->(tree: &TreeRef<Node::Hash>, nodes: &'a Nodes, key: &Node::Key) -> Option<&'a Node> 
+>(tree: &Tree<Node::Hash>, nodes: &'a Nodes, key: &Node::Key) -> Result<Option<&'a Node>, TreeError<Node::Hash>>
     where Node: crate::tree::node::traits::Node, 
           Nodes: crate::tree::node::traits::Nodes<Node=Node>
 {
-    let node = search_path(tree, nodes, key)
-    .last()
-    .and_then(|node_ref| nodes.borrow_node(node_ref));
+    if let Some(node_ref) = search_path(tree, nodes, key)?.last() {
+        if let Some(node) = nodes.borrow_node(node_ref)
+        {
+            Ok(Some(node))
+        } else {
+            Err(TreeError::MissingNode(node_ref.clone()))
+        }
+    } else {
+        Ok(None)
+    }
+}
 
-    node
+fn search_mut_node<
+    'a,
+    Node,
+    Nodes
+>(tree: &Tree<Node::Hash>, nodes: &'a mut Nodes, key: &Node::Key) -> Result<Option<&'a mut Node>, TreeError<Node::Hash>>
+    where Node: crate::tree::node::traits::Node, 
+          Nodes: crate::tree::node::traits::Nodes<Node=Node>
+{
+    if let Some(node_ref) = search_path(tree, nodes, key)?.last() {
+        if let Some(node) = nodes.borrow_mut_node(node_ref)
+        {
+            Ok(Some(node))
+        } else {
+            Err(TreeError::MissingNode(node_ref.clone()))
+        }
+    } else {
+        Ok(None)
+    }
+}
+
+fn search_mut_leaf<
+    'a,
+    Node:   crate::tree::node::traits::Node + 'static,
+    Nodes:  crate::tree::node::traits::Nodes<Node=Node>
+>(tree: &Tree<Node::Hash>, nodes: &'a mut Nodes, key: &Node::Key) -> Result<&'a mut Node::Leaf, TreeError<Node::Hash>>
+{
+    if let Some(leaf )= search_mut_node(tree, nodes, key)?.and_then(|node| node.as_mut().as_mut_leaf()) {
+        Ok(leaf)
+    } else {
+        Err(TreeError::ExpectingLeaf)
+    }
 }
 
 fn search_leaf<
     'a,
     Node:   crate::tree::node::traits::Node + 'static,
     Nodes:  crate::tree::node::traits::Nodes<Node=Node>
->(tree: &TreeRef<Node::Hash>, nodes: &'a Nodes, key: &Node::Key) -> Option<&'a Node::Leaf>
+>(tree: &Tree<Node::Hash>, nodes: &'a Nodes, key: &Node::Key) -> Result<&'a Node::Leaf, TreeError<Node::Hash>>
 {
-    search_node(tree, nodes, key)
-    .and_then(|node| node.r#as().as_leaf())
+    if let Some(leaf )= search_node(tree, nodes, key)?.and_then(|node| node.r#as().as_leaf()) {
+        Ok(leaf)
+    } else {
+        Err(TreeError::ExpectingLeaf)
+    }
+}
+
+pub fn search_mut<
+    'a,
+    Node:       crate::tree::node::traits::Node + 'static,
+    Nodes:      crate::tree::node::traits::Nodes<Node=Node>
+>(tree: &Tree<Node::Hash>, nodes: &'a mut Nodes, key: &Node::Key) -> Result<Option<&'a mut Node::Element>, TreeError<Node::Hash>>
+{
+    Ok(search_mut_leaf(tree, nodes, key)?.search_mut(key))
 }
 
 /// Search an element in the tree
@@ -35,10 +86,9 @@ pub fn search<
     'a,
     Node:       crate::tree::node::traits::Node + 'static,
     Nodes:      crate::tree::node::traits::Nodes<Node=Node>
->(tree: &TreeRef<Node::Hash>, nodes: &'a Nodes, key: &Node::Key) -> Option<&'a Node::Element>
+>(tree: &Tree<Node::Hash>, nodes: &'a Nodes, key: &Node::Key) -> Result<Option<&'a Node::Element>, TreeError<Node::Hash>>
 {
-    search_leaf(tree, nodes, key)
-    .and_then(|leaf| leaf.search(key))
+    Ok(search_leaf(tree, nodes, key)?.search(key))
 }
 
 /// Search the element behind the key, if any
@@ -46,7 +96,7 @@ fn search_path<
     Branch: crate::tree::branch::traits::Branch<Node=Node>,
     Node: crate::tree::node::traits::Node<Branch=Branch>,
     Nodes: crate::tree::node::traits::Nodes<Node=Node>
->(tree: &TreeRef<Node::Hash>, nodes: &Nodes, key: &Node::Key) -> Path<Node::Hash>
+>(tree: &Tree<Node::Hash>, nodes: &Nodes, key: &Node::Key) -> Result<Path<Node::Hash>, TreeError<Node::Hash>>
 {
     let mut path = Path::<Node::Hash>::new();
     let mut opt_node_ref = tree.get_root().cloned();
@@ -68,19 +118,19 @@ fn search_path<
             }
 
         } else {
-            break;
+            return Err(TreeError::MissingNode(node_ref.clone()))
         }
     }
 
-    path
+    Ok(path)
 }
 
 pub fn insert<
     Node: crate::tree::node::traits::Node,
     Nodes: crate::tree::node::traits::Nodes<Node=Node>
->(tree: &mut TreeRef<Node::Hash>, nodes: &mut Nodes, key: Node::Key, element: Node::Element)
+>(tree: &mut Tree<Node::Hash>, nodes: &mut Nodes, key: Node::Key, element: Node::Element) -> Result<(), TreeError<Node::Hash>>
 {
-    let path = search_path(tree, nodes, &key);
+    let path = search_path(tree, nodes, &key)?;
 
     if let Some(leaf) = path.last()
     .and_then(|node_ref| nodes.borrow_mut_node(node_ref))
@@ -91,21 +141,23 @@ pub fn insert<
         let node_ref = nodes.allocate(node);
         tree.set_root(Some(node_ref));
     } else {
-        panic!("Tree integrity error: expecting to find a leaf to insert element");
+        return Err(TreeError::MissingLeaf);
     }
 
-    split_if_required(tree, nodes, path);
+    split_if_required(tree, nodes, path)?;
+
+    Ok(())
 }
 
 fn split_if_required<
     Node:   crate::tree::node::traits::Node,
     Nodes:  crate::tree::node::traits::Nodes<Node=Node>
->(tree: &mut TreeRef<Node::Hash>, nodes: &mut Nodes, mut path: Path<Node::Hash>)
+>(tree: &mut Tree<Node::Hash>, nodes: &mut Nodes, mut path: Path<Node::Hash>) -> Result<(), TreeError<Node::Hash>>
 {
-while let Some(node_ref) = path.pop()
-{
-    if let Some(node) = nodes.borrow_mut_node(&node_ref)
+    while let Some(node_ref) = path.pop()
     {
+        let node = nodes.borrow_mut_node(&node_ref).ok_or(TreeError::MissingNode(node_ref.clone()))?;
+        
         // The node is full, we split it
         if node.is_full() {
             let (key, right_node) = node.split();
@@ -128,12 +180,11 @@ while let Some(node_ref) = path.pop()
                 }
             }
         } else {
-            return;
-        }
-    } else {
-        panic!("Tree integrity error: expecting a node behind the given reference.");
+            return Ok(());
+        } 
     }
-}
+
+    Ok(())
 }
 /// Commit the updated tree
 /// 1°) Recompute the hashes from loaded nodes from bottom to top
@@ -143,13 +194,13 @@ pub fn commit<
     Node: crate::tree::node::traits::Node,
     Nodes: crate::tree::node::traits::Nodes<Node=Node>
 
->(tree: &mut TreeRef<Node::Hash>, nodes: &mut Nodes)  -> Vec<NodeRef<Node::Hash>>
+>(tree: &mut Tree<Node::Hash>, nodes: &mut Nodes)  -> Vec<NodeRef<Node::Hash>>
 {
     let mut updated_nodes: Vec<NodeRef<Node::Hash>> = vec![];
 
     // Clone avoid immutable borrow
-    if let Some(root_ref) = tree.get_root().cloned() {
-
+    if let Some(root_ref) = tree.get_root().cloned() 
+    {
         while let Some(node_ref) = nodes.get_loaded_nodes(root_ref.clone()).pop_front()
         {
             let mut compute_node_hash: Option<Node::Hash> = None;
@@ -174,20 +225,6 @@ pub fn commit<
                     }
                 }
             }
-
-            /*
-            // Now we unload the children ref
-            if let Some(node) = nodes.borrow_mut_node(&node_ref) 
-            {
-                node
-                .children()
-                .iter()
-                .map(|cr|(cr, nodes.borrow_node(*cr)))
-                .filter(|(_cr, c)| c.is_some())
-                .map(|(cr, c)| (cr, c.unwrap()))
-                .for_each(|(cr, c)| cr.unload(c.get_hash().unwrap()))
-            }
-            */
             
             if let Some(root_ref) = tree.get_root()
             {

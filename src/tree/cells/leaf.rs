@@ -37,6 +37,8 @@ pub mod traits {
         type Node: crate::tree::node::traits::Node;
     
         fn search<'a>(&'a self, k: &<Self::Node as crate::tree::node::traits::Node>::Key) -> Option<&'a <Self::Node as crate::tree::node::traits::Node>::Element>;
+        fn search_mut<'a>(&'a mut self, k: &<Self::Node as crate::tree::node::traits::Node>::Key) -> Option<&'a mut <Self::Node as crate::tree::node::traits::Node>::Element>;
+        
         fn split(&mut self) -> (<Self::Node as crate::tree::node::traits::Node>::Key, Self);
         fn is_full(&self) -> bool;
         fn insert(&mut self, key: <Self::Node as crate::tree::node::traits::Node>::Key, element: <Self::Node as crate::tree::node::traits::Node>::Element);
@@ -45,6 +47,7 @@ pub mod traits {
 
 use self::traits::LeafCells as TraitLeafCells;
 
+#[derive(Clone)]
 pub struct LeafCells<Node> 
 where Node: crate::tree::node::traits::Node
 {
@@ -73,6 +76,13 @@ where Node: crate::tree::node::traits::Node
         .and_then(|c| Some(&(c.1)))
     }
 
+    fn search_mut<'a>(&'a mut self, key: &<Self::Node as crate::tree::node::traits::Node>::Key) -> Option<&'a mut <Self::Node as crate::tree::node::traits::Node>::Element> {
+        self.cells
+        .iter_mut()
+        .find(|c| *c == key)
+        .and_then(|c| Some(&mut (c.1)))
+    }
+
     fn split(&mut self) -> (Node::Key, Self)
     {
         let (left, right) = self.cells.split_at(Node::SIZE/2);
@@ -89,4 +99,6 @@ where Node: crate::tree::node::traits::Node
         self.cells.push(LeafCell(key, element));
         self.cells.sort_unstable_by_key(|c| c.0.clone());
     }
+
+
 }

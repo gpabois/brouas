@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use self::traits::Branch as TraitBranch;
 use crate::tree::node::traits::BorrowNode;
 use super::{cells::branch::BranchCells, NodeRef};
@@ -39,6 +37,7 @@ pub mod traits {
      
 }
 
+#[derive(Clone)]
 pub struct Branch<Node>
 where Node: crate::tree::node::traits::Node
 {

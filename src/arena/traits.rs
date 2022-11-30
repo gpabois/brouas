@@ -1,4 +1,3 @@
-
 pub trait Allocator<ElementRef, Element>
 {
     fn allocate(&mut self, element: Element) -> ElementRef;

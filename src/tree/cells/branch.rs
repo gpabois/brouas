@@ -1,5 +1,4 @@
-use crate::tree::{NodeRef, branch::traits::Branch};
-
+use crate::tree::NodeRef;
 use self::traits::BranchCells as TraitBranchCells;
 
 pub mod traits {
@@ -22,7 +21,7 @@ pub mod traits {
     }
 }
 
-
+#[derive(Clone)]
 pub struct BranchCells<Node>
 where Node: crate::tree::node::traits::Node
 {
