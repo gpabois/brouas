@@ -9,3 +9,9 @@ impl AddAssign<i32> for LocalIndex {
         self.0 += rhs;
     }
 }
+
+impl std::fmt::Display for LocalIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}

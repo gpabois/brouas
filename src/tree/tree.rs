@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use super::NodeRef;
 use super::Nodes;
 use super::error::TreeError;
@@ -29,9 +31,26 @@ impl<Hash: Clone+PartialEq> Path<Hash>
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, PartialEq)]
 pub struct Tree<Hash: Clone + PartialEq> {
     root: Option<NodeRef<Hash>>
+}
+
+impl<Hash: Clone + PartialEq + Display> Display for Tree<Hash> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(root) = &self.root {
+            write!(f, "tree::{}", root)
+        } else {
+            write!(f, "tree::empty")
+        }
+        
+    }
+}
+
+impl<Hash: Clone + PartialEq + Display> std::fmt::Debug for Tree<Hash> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self)
+    }
 }
 
 impl<Hash: Clone + PartialEq> Tree<Hash>
@@ -138,6 +157,8 @@ where Nodes: crate::tree::node::traits::Nodes
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Display;
+
     use super::{*, traits::TreeTransaction as TTreeTransaction};
     use crate::{storage::{InMemory, MutRefStorage}, tree::Node};
 
@@ -148,10 +169,18 @@ mod tests {
 
     #[derive(Hash, Clone, Eq, PartialEq, PartialOrd)]
     pub struct Sha256
-    {}
+    {
+
+    }
+
+    impl Display for Sha256 {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            todo!()
+        }
+    }
 
     #[test]
-    fn test_tree_insert_and_search() -> Result<(), Box<dyn std::error::Error>>
+    fn test_tree_insert_and_search() -> Result<(), TreeError<Sha256>>
     {
         let mut storage = InMemory::<Sha256, Node<3, Sha256, u8, TestElement>>::new();
         let tree;
@@ -164,6 +193,8 @@ mod tests {
             );
             transaction.insert(0, TestElement{data: 0x10})?;
             tree = transaction.commit()?;
+
+            assert_ne!(tree, Tree::empty());
         }
 
         // Create a transaction to search our element
@@ -172,7 +203,7 @@ mod tests {
                 tree,  
                 MutRefStorage::from(&mut storage)
             );    
-            let element = transaction.search(&0).expect("Expecting an element");
+            let element = transaction.search(&0)?.expect("Expecting an element");
             assert_eq!(element.data, 0x10);
         }
 

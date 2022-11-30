@@ -20,6 +20,20 @@ impl<ForeignKey> BareTLElementRef<ForeignKey>
 #[derive(Clone, PartialEq)]
 pub struct TLElementRef<ForeignIndex: Clone + PartialEq>(RefCell<BareTLElementRef<ForeignIndex>>);
 
+impl<ForeignIndex: Clone + PartialEq + std::fmt::Display> std::fmt::Display for TLElementRef<ForeignIndex>
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(foreign_index) = self.get_foreign_index() {
+            return write!(f, "fidx::{}", foreign_index)
+        }
+        if let Some(local_index) = self.get_local_index() {
+            return write!(f, "lidx::{}", local_index)
+        }
+
+        panic!("Cannot have both local and foreign indexes empty.")
+    }
+}
+
 impl<ForeignIndex: Clone + PartialEq> TraitTLElementRef for TLElementRef<ForeignIndex>
 {
     type ForeignIndex = ForeignIndex;

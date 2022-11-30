@@ -120,7 +120,7 @@ pub mod traits {
         const SIZE: usize;
 
         type Key: Clone + PartialOrd + PartialEq + Ord;
-        type Hash: Clone + PartialEq;
+        type Hash: Clone + PartialEq + std::fmt::Display;
         type Element: Clone;
 
         type Leaf: crate::tree::leaf::traits::Leaf<Node=Self>;
@@ -149,7 +149,7 @@ pub mod traits {
 
 #[derive(Clone)]
 pub struct Node<const SIZE: usize, Hash, Key, Element>
-where   Hash: Clone + PartialEq,
+where   Hash: Clone + PartialEq + std::fmt::Display,
         Key: PartialEq + PartialOrd + Ord + Clone,
         Element: Clone
 {
@@ -158,7 +158,7 @@ where   Hash: Clone + PartialEq,
 }
 
 impl<const SIZE: usize, Hash, Key, Element> From<Branch<Self>> for Node<SIZE, Hash, Key, Element>
-where   Hash: Clone + PartialEq,
+where   Hash: Clone + PartialEq + std::fmt::Display,
         Key: PartialEq + PartialOrd + Ord + Clone,
         Element: Clone
 {
@@ -171,7 +171,7 @@ where   Hash: Clone + PartialEq,
 }
 
 impl<const SIZE: usize, Hash, Key, Element> From<Leaf<Self>> for Node<SIZE, Hash, Key, Element>
-where   Hash: Clone + PartialEq,
+where   Hash: Clone + PartialEq + std::fmt::Display,
         Key: PartialEq + PartialOrd + Ord + Clone,
         Element: Clone
 {
@@ -184,7 +184,7 @@ where   Hash: Clone + PartialEq,
 }
 
 impl<const SIZE: usize, Hash, Key, Element> PartialEq<Hash> for Node<SIZE, Hash, Key, Element>
-where   Hash: Clone + PartialEq,
+where   Hash: Clone + PartialEq + std::fmt::Display,
         Key: PartialEq + PartialOrd + Ord + Clone,
         Element: Clone
 {
@@ -194,7 +194,7 @@ where   Hash: Clone + PartialEq,
 }
 
 impl<const SIZE: usize, Hash, Key, Element> self::traits::Node for Node<SIZE, Hash, Key, Element>
-where   Hash: Clone + PartialEq,
+where   Hash: Clone + PartialEq + std::fmt::Display,
         Key: PartialEq + PartialOrd + Ord + Clone,
         Element: Clone
 {
