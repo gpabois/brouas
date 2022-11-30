@@ -1,8 +1,9 @@
-use crate::tree::NodeRef;
+use crate::tree::{NodeRef, node::traits::{Node, BorrowNode}};
 use self::traits::BranchCells as TraitBranchCells;
+use crate::hash::traits::{Hash, Hasher, Hashable};
 
 pub mod traits {
-    use crate::tree::{NodeRef};
+    use crate::tree::{NodeRef, node::traits::BorrowNode};
 
     pub trait BranchCells
     {
@@ -18,6 +19,8 @@ pub mod traits {
         fn is_full(&self) -> bool;
         /// Insert a cell
         fn insert(&mut self, left: NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>, key: <Self::Node as crate::tree::node::traits::Node>::Key, right: NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>);
+        /// Compute the branch cells hash
+        fn compute_hash<Nodes: BorrowNode<Self::Node>>(&self, nodes: &Nodes) -> <Self::Node as crate::tree::node::traits::Node>::Hash;
     }
 }
 
@@ -87,6 +90,15 @@ where Node: crate::tree::node::traits::Node
             cells: vec![BranchCell(key, right)]
         }
     }
+
+    fn compute_hash<Nodes: BorrowNode<Self::Node>>(&self, nodes: &Nodes) -> <Self::Node as crate::tree::node::traits::Node>::Hash {
+        let mut hasher = <Self::Node as crate::tree::node::traits::Node>::Hash::new_hasher();
+
+        self.head.hash(&mut hasher);
+        self.cells.iter().for_each(|cell| cell.hash(&mut hasher));
+
+        hasher.finalize()
+    }
 }
 
 pub struct BranchCell<Node: crate::tree::node::traits::Node>(Node::Key, NodeRef<Node::Hash>);
@@ -95,6 +107,14 @@ impl<Node: crate::tree::node::traits::Node> Clone for BranchCell<Node>
 {
     fn clone(&self) -> Self {
         Self(self.0.clone(), self.1.clone())
+    }
+}
+
+impl<Node: crate::tree::node::traits::Node> crate::hash::traits::Hashable for BranchCell<Node>
+{
+    fn hash<H: Hasher>(&self, hasher: &mut H) {
+        self.0.hash(hasher);
+        self.1.hash(hasher);
     }
 }
 

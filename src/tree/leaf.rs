@@ -84,7 +84,7 @@ where Node: crate::tree::node::traits::Node {
     }
 
     fn compute_hash(&self) -> <Self::Node as crate::tree::node::traits::Node>::Hash {
-        todo!()
+        self.cells.compute_hash()
     }
 
 

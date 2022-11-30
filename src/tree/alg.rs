@@ -194,14 +194,16 @@ pub fn commit<
     Node: crate::tree::node::traits::Node,
     Nodes: crate::tree::node::traits::Nodes<Node=Node>
 
->(tree: &mut Tree<Node::Hash>, nodes: &mut Nodes)  -> Vec<NodeRef<Node::Hash>>
+>(tree: &mut Tree<Node::Hash>, nodes: &mut Nodes)  -> Result<Vec<NodeRef<Node::Hash>>, TreeError<Node::Hash>>
 {
     let mut updated_nodes: Vec<NodeRef<Node::Hash>> = vec![];
 
     // Clone avoid immutable borrow
     if let Some(root_ref) = tree.get_root().cloned() 
     {
-        while let Some(node_ref) = nodes.get_loaded_nodes(root_ref.clone()).pop_front()
+        let mut loaded_nodes = nodes.get_loaded_nodes(root_ref.clone())?;
+        
+        while let Some(node_ref) = loaded_nodes.pop_front()
         {
             let mut compute_node_hash: Option<Node::Hash> = None;
             {
@@ -240,5 +242,5 @@ pub fn commit<
         }
     }
 
-    updated_nodes
+    Ok(updated_nodes)
 }

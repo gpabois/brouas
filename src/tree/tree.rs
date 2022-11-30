@@ -149,7 +149,7 @@ where Nodes: crate::tree::node::traits::Nodes
     }
 
     fn commit(&mut self) -> Result<Tree<<Nodes::Node as TNode>::Hash>, TreeError<<Nodes::Node as TNode>::Hash>>{
-        let updated_nodes = tree_alg::commit(&mut self.tree_ref, &mut self.nodes);
+        let updated_nodes = tree_alg::commit(&mut self.tree_ref, &mut self.nodes)?;
         self.nodes.save_nodes(updated_nodes);
         Ok(self.tree_ref.clone())
     }
@@ -157,32 +157,44 @@ where Nodes: crate::tree::node::traits::Nodes
 
 #[cfg(test)]
 mod tests {
-    use std::fmt::Display;
-
     use super::{*, traits::TreeTransaction as TTreeTransaction};
-    use crate::{storage::{InMemory, MutRefStorage}, tree::Node};
+    use crate::{storage::{InMemory, MutRefStorage}, tree::Node, hash::Sha256};
 
     #[derive(Clone)]
     pub struct TestElement {
         data: u8
     }
-
-    #[derive(Hash, Clone, Eq, PartialEq, PartialOrd)]
-    pub struct Sha256
+    
+    impl crate::hash::traits::Hashable for TestElement
     {
-
+        fn hash<H: crate::hash::traits::Hasher>(&self, hasher: &mut H) {
+            hasher.update([self.data]);
+        }
     }
 
-    impl Display for Sha256 {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            todo!()
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
+    pub struct TestKey {
+        data: u8
+    }
+
+    impl TestKey {
+        pub fn new(data: u8) -> Self {
+            Self {
+                data: data
+            }
+        }
+    }
+
+    impl crate::hash::traits::Hashable for TestKey {
+        fn hash<H: crate::hash::traits::Hasher>(&self, hasher: &mut H) {
+            hasher.update([self.data])
         }
     }
 
     #[test]
     fn test_tree_insert_and_search() -> Result<(), TreeError<Sha256>>
     {
-        let mut storage = InMemory::<Sha256, Node<3, Sha256, u8, TestElement>>::new();
+        let mut storage = InMemory::<Sha256, Node<3, Sha256, TestKey, TestElement>>::new();
         let tree;
         
         // Create a transaction to insert our element
@@ -191,7 +203,7 @@ mod tests {
                 Tree::empty(),  
                 MutRefStorage::from(&mut storage)
             );
-            transaction.insert(0, TestElement{data: 0x10})?;
+            transaction.insert(TestKey::new(0), TestElement{data: 0x10})?;
             tree = transaction.commit()?;
 
             assert_ne!(tree, Tree::empty());
@@ -203,7 +215,7 @@ mod tests {
                 tree,  
                 MutRefStorage::from(&mut storage)
             );    
-            let element = transaction.search(&0)?.expect("Expecting an element");
+            let element = transaction.search(&TestKey::new(0))?.expect("Expecting an element");
             assert_eq!(element.data, 0x10);
         }
 

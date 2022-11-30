@@ -87,9 +87,9 @@ where Node: crate::tree::node::traits::Node
         todo!()
     }
 
-    fn compute_hash<Nodes: BorrowNode<Self::Node>>(&self, _nodes: &Nodes) -> <Self::Node as crate::tree::node::traits::Node>::Hash 
+    fn compute_hash<Nodes: BorrowNode<Self::Node>>(&self, nodes: &Nodes) -> <Self::Node as crate::tree::node::traits::Node>::Hash 
     {
-        todo!()
+        self.cells.compute_hash(nodes)
     }
 
     fn is_full(&self) -> bool {

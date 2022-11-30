@@ -52,6 +52,7 @@ pub mod traits {
     use std::collections::VecDeque;
 
     use crate::arena::tl_element_ref::TLElementRef;
+    use crate::tree::error::TreeError;
     use crate::{tree::NodeRef};
     use crate::arena::traits::{Allocator, TLElementRef as TraitTLElementRef};
 
@@ -77,7 +78,8 @@ pub mod traits {
         type Node: Node + 'static;
 
         /// Returns the loaded nodes, from bottom to top, starting at the top
-        fn get_loaded_nodes(&self, root_ref: NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>) -> VecDeque<NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>>
+        fn get_loaded_nodes(&self, root_ref: NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>) 
+        -> Result<VecDeque<NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>>, TreeError<<Self::Node as crate::tree::node::traits::Node>::Hash>>
         {
             let mut loaded_nodes: Vec<(usize, NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>)> = Default::default();
             let mut queue: VecDeque<(usize, NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>)> = Default::default();
@@ -88,7 +90,7 @@ pub mod traits {
             {
                 if node_ref.is_loaded()
                 {
-                    let node = self.borrow_node(&node_ref).unwrap();
+                    let node = self.borrow_node(&node_ref).ok_or(TreeError::MissingNode(node_ref.clone()))?;
                     
                     let mut children_ref: VecDeque<(usize, NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>)> = node
                     .children()
@@ -98,16 +100,15 @@ pub mod traits {
                     .collect();
 
                     queue.append(&mut children_ref);
+                    loaded_nodes.push((depth, node_ref));
 
-                } else {
-                    loaded_nodes.push((depth, node_ref))
                 }
             }
 
             loaded_nodes.sort_unstable_by_key(|(d, _)| *d);
             loaded_nodes.reverse();
 
-            loaded_nodes.into_iter().map(|(_, n)| n).collect()
+            Ok(loaded_nodes.into_iter().map(|(_, n)| n).collect())
         }
         
         /// Persist new or updated nodes
@@ -119,9 +120,9 @@ pub mod traits {
     {
         const SIZE: usize;
 
-        type Key: Clone + PartialOrd + PartialEq + Ord;
-        type Hash: Clone + PartialEq + std::fmt::Display;
-        type Element: Clone;
+        type Key: Clone + PartialOrd + PartialEq + Ord + crate::hash::traits::Hashable ;
+        type Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable;
+        type Element: Clone + crate::hash::traits::Hashable;
 
         type Leaf: crate::tree::leaf::traits::Leaf<Node=Self>;
         type Branch: crate::tree::branch::traits::Branch<Node=Self>;
@@ -149,18 +150,18 @@ pub mod traits {
 
 #[derive(Clone)]
 pub struct Node<const SIZE: usize, Hash, Key, Element>
-where   Hash: Clone + PartialEq + std::fmt::Display,
-        Key: PartialEq + PartialOrd + Ord + Clone,
-        Element: Clone
+where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable,
+        Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable,
+        Element: Clone + crate::hash::traits::Hashable 
 {
     node_type: NodeType<Branch<Self>, Leaf<Self>>,
     hash: Option<Hash>
 }
 
 impl<const SIZE: usize, Hash, Key, Element> From<Branch<Self>> for Node<SIZE, Hash, Key, Element>
-where   Hash: Clone + PartialEq + std::fmt::Display,
-        Key: PartialEq + PartialOrd + Ord + Clone,
-        Element: Clone
+where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash+ crate::hash::traits::Hashable,
+        Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable ,
+        Element: Clone + crate::hash::traits::Hashable 
 {
     fn from(branch: Branch<Self>) -> Self {
         Self {
@@ -171,9 +172,9 @@ where   Hash: Clone + PartialEq + std::fmt::Display,
 }
 
 impl<const SIZE: usize, Hash, Key, Element> From<Leaf<Self>> for Node<SIZE, Hash, Key, Element>
-where   Hash: Clone + PartialEq + std::fmt::Display,
-        Key: PartialEq + PartialOrd + Ord + Clone,
-        Element: Clone
+where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable,
+        Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable ,
+        Element: Clone + crate::hash::traits::Hashable 
 {
     fn from(leaf: Leaf<Self>) -> Self {
         Self {
@@ -184,9 +185,9 @@ where   Hash: Clone + PartialEq + std::fmt::Display,
 }
 
 impl<const SIZE: usize, Hash, Key, Element> PartialEq<Hash> for Node<SIZE, Hash, Key, Element>
-where   Hash: Clone + PartialEq + std::fmt::Display,
-        Key: PartialEq + PartialOrd + Ord + Clone,
-        Element: Clone
+where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable,
+        Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable ,
+        Element: Clone + crate::hash::traits::Hashable 
 {
     fn eq(&self, other: &Hash) -> bool {
         self.hash.eq(&Some(other.clone()))
@@ -194,9 +195,9 @@ where   Hash: Clone + PartialEq + std::fmt::Display,
 }
 
 impl<const SIZE: usize, Hash, Key, Element> self::traits::Node for Node<SIZE, Hash, Key, Element>
-where   Hash: Clone + PartialEq + std::fmt::Display,
-        Key: PartialEq + PartialOrd + Ord + Clone,
-        Element: Clone
+where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable,
+        Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable ,
+        Element: Clone + crate::hash::traits::Hashable 
 {
     const SIZE: usize = SIZE;
 

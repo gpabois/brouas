@@ -1,11 +1,22 @@
 
 #[derive(Clone)]
-pub struct LeafCell<Key: Clone, Element: Clone>(Key, Element);
+pub struct LeafCell<Key, Element>(Key, Element);
 
-impl<Key: Clone, Element: Clone> LeafCell<Key, Element>
+impl<Key, Element> LeafCell<Key, Element>
 {
     pub fn new(key: Key, element: Element) -> Self {
         Self(key, element)
+    }
+ 
+}
+
+impl<Key, Element> LeafCell<Key, Element>
+where Key: Clone + crate::hash::traits::Hashable, Element: crate::hash::traits::Hashable + Clone
+{
+    pub fn update_hash<Hasher: crate::hash::traits::Hasher>(&self, hasher: &mut Hasher)
+    {
+        self.0.hash(hasher);
+        self.1.hash(hasher);
     }
 }
 
@@ -42,10 +53,13 @@ pub mod traits {
         fn split(&mut self) -> (<Self::Node as crate::tree::node::traits::Node>::Key, Self);
         fn is_full(&self) -> bool;
         fn insert(&mut self, key: <Self::Node as crate::tree::node::traits::Node>::Key, element: <Self::Node as crate::tree::node::traits::Node>::Element);
+    
+        fn compute_hash(&self) -> <Self::Node as crate::tree::node::traits::Node>::Hash;
     }
 }
 
 use self::traits::LeafCells as TraitLeafCells;
+use crate::hash::traits::{Hash, Hasher};
 
 #[derive(Clone)]
 pub struct LeafCells<Node> 
@@ -98,6 +112,12 @@ where Node: crate::tree::node::traits::Node
     fn insert(&mut self, key: Node::Key, element: Node::Element) {
         self.cells.push(LeafCell(key, element));
         self.cells.sort_unstable_by_key(|c| c.0.clone());
+    }
+
+    fn compute_hash(&self) -> <Self::Node as crate::tree::node::traits::Node>::Hash {
+        let mut hasher = <Self::Node as crate::tree::node::traits::Node>::Hash::new_hasher();
+        self.cells.iter().for_each(|cell| cell.update_hash(&mut hasher));
+        hasher.finalize()
     }
 
 
