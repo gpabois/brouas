@@ -56,7 +56,7 @@ where Node: crate::tree::node::traits::Node
 {
     type Node = Node;
 
-    fn new(left: NodeRef<'a, Self::Node>, key: <Self::Node as TNode>::Key, right: NodeRef<'a, Node>) -> Self 
+    fn new<'b>(left: NodeRef<'b, Self::Node>, key: <Self::Node as TNode>::Key, right: NodeRef<'b, Node>) -> Self 
     {
         Self {
             cells: BranchCells::new(left, key, right)
@@ -69,7 +69,7 @@ where Node: crate::tree::node::traits::Node
     }
 
     /// Search the node satifying the key
-    fn search_node(&'a self, key: &<Self::Node as TNode>::Key) -> &'a NodeRef<'a, Self::Node>
+    fn search_node<'b>(&'b self, key: &<Self::Node as TNode>::Key) -> &'b NodeRef<'b, Self::Node>
     {
         self.cells.search(key)
     }
@@ -85,12 +85,12 @@ where Node: crate::tree::node::traits::Node
         )
     }
 
-    fn children(&'a self) -> Vec<&'a NodeRef<'a, Self::Node>> 
+    fn children<'b>(&'b self) -> Vec<&'b NodeRef<'b, Self::Node>> 
     {
         self.cells.children()
     }
 
-    fn compute_hash(&'a self) -> <Self::Node as TNode>::Hash 
+    fn compute_hash(&self) -> <Self::Node as TNode>::Hash 
     {
         self.cells.compute_hash()
     }

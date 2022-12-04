@@ -22,6 +22,8 @@ pub mod traits {
         fn insert<'a>(&'a mut self, place: &NodeRef<'a, Self::Node>, left: NodeRef<'a, Self::Node>, key: <Self::Node as TNode>::Key, right: NodeRef<'a, Self::Node>);
         /// Compute the branch cells hash
         fn compute_hash(&self) -> <Self::Node as TNode>::Hash;
+
+        fn nodes<'a>(&'a self) -> Vec<&'a NodeRef<'a, Self::Node>>;
     }
 }
 
@@ -99,6 +101,10 @@ where Node: TNode
             node = n
         }
         node
+    }
+
+    fn nodes<'a>(&'a self) -> Vec<&'a NodeRef<'a, Self::Node>> {
+        todo!()
     }
 }
 
