@@ -65,8 +65,8 @@ where Node: TNode
     }
 
     fn insert<'b>(&'b mut self, place: &NodeRef<'b, Self::Node>, left: NodeRef<'b, Self::Node>, key: <Self::Node as TNode>::Key, right: NodeRef<'b, Self::Node>) {
-        let idx = self.cells.find(place);
-        *self.cells.get_mut(idx).unwrap() = left;
+        let (idx, cell) = self.cells.iter_mut().enumerate().find(|(idx, cell)| std::ptr::eq(place, &cell.1)).unwrap();
+        cell.1 = left;
         self.cells.insert(idx + 1, BranchCell(key, right));
     }
 
@@ -89,7 +89,7 @@ where Node: TNode
         */
     }
 
-    fn search(&'a self, k: &<Self::Node as TNode>::Key) -> &'a NodeRef<'a, Self::Node> {
+    fn search<'b>(&'b self, k: &<Self::Node as TNode>::Key) -> &'b NodeRef<'b, Self::Node> {
         let mut node = &self.head;
         if let Some(n) = self.cells
         .iter()
