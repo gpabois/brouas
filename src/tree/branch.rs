@@ -14,10 +14,10 @@ pub mod traits {
         type Node: Node;
 
         /// Create a branch
-        fn new(left: NodeRef<Self::Node>, key: <Self::Node as Node>::Key, right: NodeRef<Self::Node>) -> Self;
+        fn new<'a>(left: NodeRef<'a, Self::Node>, key: <Self::Node as Node>::Key, right: NodeRef<'a, Self::Node>) -> Self;
 
         /// Insert a cell into the branch
-        fn insert(&mut self, left: NodeRef<Self::Node>, key: <Self::Node as Node>::Key, right: NodeRef<Self::Node>);
+        fn insert<'a>(&'a mut self, place: &NodeRef<'a, Self::Node>, left: NodeRef<'a, Self::Node>, key: <Self::Node as Node>::Key, right: NodeRef<'a, Self::Node>);
         
         /// Search the node satifying the key
         fn search_node<'a>(&'a self, key: &<Self::Node as Node>::Key) -> &'a NodeRef<Self::Node>;
@@ -26,7 +26,7 @@ pub mod traits {
         fn split(&mut self) -> (Self, <Self::Node as Node>::Key, Self) where Self: Sized;
 
         /// Returns the children refs
-        fn children<'a>(&'a self) -> Vec<&'a NodeRef<Self::Node>>;
+        fn children<'a>(&'a self) -> Vec<&'a NodeRef<'a, Self::Node>>;
 
         /// Compute the hash
         fn compute_hash(&self) -> <Self::Node as Node>::Hash;
@@ -37,7 +37,6 @@ pub mod traits {
      
 }
 
-#[derive(Clone)]
 pub struct Branch<'a, Node>
 where Node: crate::tree::node::traits::Node
 {
@@ -64,30 +63,34 @@ where Node: crate::tree::node::traits::Node
         }
     }
 
-    fn insert(&mut self, left: NodeRef<'a, Node>, key: <Self::Node as TNode>::Key, right: NodeRef<'a, Node>) 
+    fn insert<'b>(&'b mut self, place: &NodeRef<'b, Node>, left: NodeRef<'b, Node>, key: <Self::Node as TNode>::Key, right: NodeRef<'b, Node>) 
     {
-        self.cells.insert(left, key, right)
+        self.cells.insert(place, left, key, right)
     }
 
     /// Search the node satifying the key
-    fn search_node<'b>(&'b self, key: &<Self::Node as TNode>::Key) -> &'b NodeRef<'a, Self::Node>
+    fn search_node(&'a self, key: &<Self::Node as TNode>::Key) -> &'a NodeRef<'a, Self::Node>
     {
         self.cells.search(key)
     }
 
     /// Split the branch, and returns right node
-    fn split_branch(&mut self) -> (<Self::Node as TNode>::Key, Self) where Self: Sized
+    fn split(&mut self) -> (Self, <Self::Node as TNode>::Key, Self) where Self: Sized
     {
-        let (key, right_cells) = self.cells.split();
-        (key, Self::new_from_cells(right_cells))
+        let (left_cells, key, right_cells) = self.cells.split();
+        (
+            Self::new_from_cells(left_cells),
+            key, 
+            Self::new_from_cells(right_cells)
+        )
     }
 
-    fn children<'b>(&'a self) -> Vec<&'b NodeRef<'a, Self::Node>> 
+    fn children(&'a self) -> Vec<&'a NodeRef<'a, Self::Node>> 
     {
         self.cells.children()
     }
 
-    fn compute_hash(&self) -> <Self::Node as TNode>::Hash 
+    fn compute_hash(&'a self) -> <Self::Node as TNode>::Hash 
     {
         self.cells.compute_hash()
     }

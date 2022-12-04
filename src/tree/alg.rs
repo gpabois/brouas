@@ -5,7 +5,7 @@ use super::node_ref::NodeRef;
 use super::nodes::traits::Nodes as TNodes;
 use super::result::TreeResult;
 use crate::tree::node::traits::Node as TNode;
-use super::{Tree, Path, NodeType, Node, node};
+use super::{Tree, Path, NodeType};
 use crate::tree::branch::traits::Branch;
 use crate::tree::leaf::traits::Leaf;
 
@@ -135,17 +135,17 @@ fn split_if_required<'a, Nodes>(tree: &mut Tree<Nodes::Node>, nodes: &Nodes, mut
     {        
         // The node is full, we split it
         if node.is_full() {
-            let (key, right_node) = node.split();
+            let (left_node, key, right_node) = node.split();
             let right_node = nodes.alloc(right_node);
             match path.last()
             .and_then(|node| node.as_mut().as_mut_branch())
             {
                 Some(parent_branch) => {
-                    <Nodes::Node as TNode>::Branch::insert(parent_branch, node, key, right_node);
+                    <Nodes::Node as TNode>::Branch::insert(parent_branch, node, left_node, key, right_node);
                 }
                 None => {
                     let root_ref = nodes.alloc(
-                        <Nodes::Node as TNode>::Branch::new(node.clone(), key, right_node).into()
+                        <Nodes::Node as TNode>::Branch::new( left_node, key, right_node).into()
                     );
                     
                     tree.set_root(Some(root_ref));

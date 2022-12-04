@@ -24,7 +24,7 @@ impl<'a, Node> NodeRef<'a, Node>
 where Node: TNode
 {
     pub fn is_loaded(&self) -> bool {
-        if let BaseNodeRef::Node(_) = self.0.borrow() {
+        if let BaseNodeRef::Node(_) = self.0.get_mut() {
             true
         } else {
             false
@@ -33,13 +33,18 @@ where Node: TNode
 
     pub fn id(&self) -> Node::Hash {
         match self.0.get_mut() {
-            BaseNodeRef::Id(id) => id,
+            BaseNodeRef::Id(id) => id.clone(),
             BaseNodeRef::Node(node) => node.compute_hash()
         }
     }
 
     pub fn load(&self, node: &mut Node) {
-        *self.0.get_mut() = NodeRef::Node(node);
+        *self.0.get_mut() = BaseNodeRef::Node(node);
+    }
+
+    pub fn to_owned(&self) -> Self {
+        let base = self.0.into_inner();
+        Self(UnsafeCell::new(base))
     }
 }
 

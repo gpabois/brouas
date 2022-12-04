@@ -5,16 +5,12 @@ use super::branch::traits::Branch as TBranch;
 
 #[derive(Clone)]
 pub enum NodeType<Branch, Leaf>
-where Branch: crate::tree::branch::traits::Branch,
-      Leaf: crate::tree::leaf::traits::Leaf
 {
     Leaf(Leaf),
     Branch(Branch)
 }
 
 impl<Branch, Leaf> NodeType<Branch, Leaf>
-where Branch: crate::tree::branch::traits::Branch,
-      Leaf: crate::tree::leaf::traits::Leaf
 {
     pub fn as_branch(&self) -> Option<&Branch>
     {
@@ -53,7 +49,7 @@ pub mod traits {
     use super::NodeType;
 
     /// The MBT Node Trait
-    pub trait Node: From<Self::Leaf> + From<Self::Branch> + PartialEq<Self::Hash> + Clone
+    pub trait Node: From<Self::Leaf> + From<Self::Branch> + PartialEq<Self::Hash>
     {
         const SIZE: usize;
 
@@ -85,9 +81,8 @@ pub mod traits {
 
 }
 
-#[derive(Clone)]
 pub struct Node<'a, const SIZE: usize, Hash, Key, Element>
-where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable,
+where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable + Default,
         Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable,
         Element: Clone + crate::hash::traits::Hashable 
 {
@@ -96,7 +91,7 @@ where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash 
 }
 
 impl<'a, const SIZE: usize, Hash, Key, Element> From<Branch<'a, Self>> for Node<'a, SIZE, Hash, Key, Element>
-where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash+ crate::hash::traits::Hashable,
+where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable + Default,
         Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable ,
         Element: Clone + crate::hash::traits::Hashable 
 {
@@ -109,7 +104,7 @@ where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash+
 }
 
 impl<'a, const SIZE: usize, Hash, Key, Element> From<Leaf<Self>> for Node<'a, SIZE, Hash, Key, Element>
-where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable,
+where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable + Default,
         Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable ,
         Element: Clone + crate::hash::traits::Hashable 
 {
@@ -122,7 +117,7 @@ where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash 
 }
 
 impl<'a, const SIZE: usize, Hash, Key, Element> PartialEq<Hash> for Node<'a, SIZE, Hash, Key, Element>
-where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable,
+where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable + Default,
         Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable ,
         Element: Clone + crate::hash::traits::Hashable 
 {
@@ -132,7 +127,7 @@ where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash 
 }
 
 impl<'a, const SIZE: usize, Hash, Key, Element> self::traits::Node for Node<'a, SIZE, Hash, Key, Element>
-where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable,
+where   Hash: Clone + PartialEq + std::fmt::Display + Default + crate::hash::traits::Hash + crate::hash::traits::Hashable,
         Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable ,
         Element: Clone + crate::hash::traits::Hashable 
 {
@@ -175,17 +170,19 @@ where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash 
         return self.hash.clone()
     }
 
-    fn split(&mut self) -> (Self::Key, Self) {
+    fn split(&mut self) -> (Self, Self::Key, Self) {
         match self.as_mut() {
             NodeType::Branch(branch) => {
-                let (key, right_branch) = branch.split_branch();
+                let (left_branch, key, right_branch) = branch.split();
                 let right_node = Self::from(right_branch);
-                (key, right_node)
+                let left_node = Self::from(left_branch);
+                (left_node, key, right_node)
             },
             NodeType::Leaf(leaf) => {
-                let (key, right_leaf) = leaf.split_leaf();
+                let (left_leaf, key, right_leaf) = leaf.split();
                 let right_node = Self::from(right_leaf);
-                (key, right_node)
+                let left_node = Self::from(left_leaf);
+                (left_node, key, right_node)
             }
         }
     }

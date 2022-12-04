@@ -1,5 +1,6 @@
 
-#[derive(Clone)]
+use crate::tree::node::traits::Node as TNode;
+
 pub struct LeafCell<Key, Element>(Key, Element);
 
 impl<Key, Element> LeafCell<Key, Element>
@@ -43,11 +44,13 @@ impl<Key: PartialOrd + PartialEq + Clone, Element: Clone> std::cmp::PartialEq<Ke
 }
 
 pub mod traits {
+    use crate::tree::node::traits::Node as TNode;
+
     pub trait LeafCells
     {
-        type Node: crate::tree::node::traits::Node;
+        type Node: TNode;
     
-        fn search<'a>(&'a self, k: &<Self::Node as crate::tree::node::traits::Node>::Key) -> Option<&'a <Self::Node as crate::tree::node::traits::Node>::Element>;
+        fn search<'a>(&'a self, k: &<Self::Node as TNode>::Key) -> Option<&'a <Self::Node as TNode>::Element>;
         fn search_mut<'a>(&'a mut self, k: &<Self::Node as crate::tree::node::traits::Node>::Key) -> Option<&'a mut <Self::Node as crate::tree::node::traits::Node>::Element>;
         
         fn split(&mut self) -> (Self, <Self::Node as crate::tree::node::traits::Node>::Key, Self) where Self: Sized;
@@ -61,9 +64,8 @@ pub mod traits {
 use self::traits::LeafCells as TraitLeafCells;
 use crate::hash::traits::{Hash, Hasher};
 
-#[derive(Clone)]
 pub struct LeafCells<Node> 
-where Node: crate::tree::node::traits::Node
+where Node: TNode
 {
     cells: Vec<LeafCell<Node::Key, Node::Element>>
 }
@@ -97,12 +99,17 @@ where Node: crate::tree::node::traits::Node
         .and_then(|c| Some(&mut (c.1)))
     }
 
-    fn split(&mut self) -> (Node::Key, Self)
+    fn split(&mut self) -> (Self, Node::Key, Self)
     {
-        let (left, right) = self.cells.split_at(Node::SIZE/2);
-        let right_cells = Self {cells: right.iter().cloned().collect()};
-        self.cells = left.iter().cloned().collect();
-        (right_cells.cells[0].0.clone(), right_cells)
+        let middle_index = Node::SIZE/2;
+
+        let lefts: Vec<_> = self.cells.drain(0..middle_index).collect();
+        let rights: Vec<_> = self.cells.drain(..).collect();
+        let right_cells = Self {cells: rights};
+        let left_cells = Self{cells: lefts};
+        let middle_key = right_cells.cells[0].0.clone();
+
+        return (left_cells, middle_key, right_cells)
     }
 
     fn is_full(&self) -> bool {
