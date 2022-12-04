@@ -103,7 +103,7 @@ where Node: TNode
         node
     }
 
-    fn nodes<'a>(&'a self) -> Vec<&'a NodeRef<'a, Self::Node>> {
+    fn nodes<'b>(&'b self) -> Vec<&'b NodeRef<'b, Self::Node>> {
         todo!()
     }
 }

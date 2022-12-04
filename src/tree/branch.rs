@@ -87,7 +87,7 @@ where Node: crate::tree::node::traits::Node
 
     fn children<'b>(&'b self) -> Vec<&'b NodeRef<'b, Self::Node>> 
     {
-        self.cells.children()
+        self.cells.nodes()
     }
 
     fn compute_hash(&self) -> <Self::Node as TNode>::Hash 
