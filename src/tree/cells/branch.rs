@@ -1,42 +1,42 @@
-use crate::tree::{NodeRef, node::traits::{Node, BorrowNode}};
 use self::traits::BranchCells as TraitBranchCells;
-use crate::hash::traits::{Hash, Hasher, Hashable};
+use crate::tree::node::traits::Node as TNode;
+use crate::{hash::traits::{Hash, Hasher, Hashable}, tree::node_ref::NodeRef};
 
 pub mod traits {
-    use crate::tree::{NodeRef, node::traits::BorrowNode};
+    use crate::tree::node_ref::NodeRef;
+    use crate::tree::node::traits::Node as TNode;
 
-    pub trait BranchCells
+    pub trait BranchCells<'a>
     {
         type Node: crate::tree::node::traits::Node;
         
         /// New branch cells
-        fn new(left: NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>, key: <Self::Node as crate::tree::node::traits::Node>::Key, right: NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>) -> Self;
+        fn new(left: NodeRef<'a, Self::Node>, key: <Self::Node as TNode>::Key, right: NodeRef<'a, Self::Node>) -> Self;
         /// Search the node based on the key
-        fn search<'a>(&'a self, k: &<Self::Node as crate::tree::node::traits::Node>::Key) -> &'a NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>;
+        fn search<'b>(&'b self, k: &<Self::Node as TNode>::Key) -> &'b NodeRef<'b, Self::Node>;
         /// Split the cells
-        fn split(&mut self) -> (<Self::Node as crate::tree::node::traits::Node>::Key, Self);
+        fn split(&mut self) -> (Self, <Self::Node as TNode>::Key, Self) where Self: Sized;
         /// The cells are full
         fn is_full(&self) -> bool;
         /// Insert a cell
-        fn insert(&mut self, left: NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>, key: <Self::Node as crate::tree::node::traits::Node>::Key, right: NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>);
+        fn insert(&mut self, left: NodeRef<'a, Self::Node>, key: <Self::Node as TNode>::Key, right: NodeRef<'a, Self::Node>);
         /// Compute the branch cells hash
-        fn compute_hash<Nodes: BorrowNode<Self::Node>>(&self, nodes: &Nodes) -> <Self::Node as crate::tree::node::traits::Node>::Hash;
+        fn compute_hash(&self) -> <Self::Node as TNode>::Hash;
     }
 }
 
-#[derive(Clone)]
-pub struct BranchCells<Node>
+pub struct BranchCells<'a, Node>
 where Node: crate::tree::node::traits::Node
 {
-    head: NodeRef<Node::Hash>,
-    cells: Vec<BranchCell<Node>>
+    head: NodeRef<'a, Node>,
+    cells: Vec<BranchCell<'a, Node>>
 } 
 
-impl<Node> TraitBranchCells for BranchCells<Node>
+impl<'a, Node> TraitBranchCells<'a> for BranchCells<'a, Node>
 where Node: crate::tree::node::traits::Node
 {
     type Node = Node;
-    fn search<'a>(&'a self, k: &<Self::Node as crate::tree::node::traits::Node>::Key) -> &'a NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>
+    fn search<'b>(&'b self, k: &<Self::Node as crate::tree::node::traits::Node>::Key) -> &'b NodeRef<'a, Self::Node>
     {
         let mut node = &self.head;
         if let Some(n) = self.cells
@@ -50,28 +50,38 @@ where Node: crate::tree::node::traits::Node
     }
  
 
-    fn split(&mut self) -> (<Self::Node as crate::tree::node::traits::Node>::Key, Self) {
+    fn split(&mut self) -> (Self, <Self::Node as crate::tree::node::traits::Node>::Key, Self) {
         let middle_index = <Self::Node as crate::tree::node::traits::Node>::SIZE/2;
-        let lefts = &self.cells[0..middle_index - 1];
-        let rights = &self.cells[middle_index + 1..];
-        let middle_cell = self.cells[middle_index].clone();
+
+        let slice = self.cells.into_boxed_slice();
+        
+        let mut lefts: Vec<BranchCell<Self::Node>> = Vec::with_capacity(middle_index - 1);
+        lefts.copy_from_slice(&slice[0..middle_index]);
+
+        let mut rights: Vec<BranchCell<Self::Node>> = Vec::with_capacity(middle_index - 1);
+        rights.as_ref().copy_from_slice(&slice[middle_index + 1 ..]);
+
+        let middle_cell = slice[middle_index];
 
         let middle_key = middle_cell.0;
         let right_cell = Self {
             head: middle_cell.1,
-            cells: rights.iter().cloned().collect()
+            cells: rights.into_iter().collect()
         };
 
-        self.cells = lefts.iter().cloned().collect();
+        let left_cell = Self {
+            head: self.head,
+            cells: lefts
+        };
 
-        return (middle_key, right_cell)
+        return (left_cell, middle_key, right_cell)
     }
 
     fn is_full(&self) -> bool {
         self.cells.len() >= <Self::Node as crate::tree::node::traits::Node>::SIZE
     }
 
-    fn insert(&mut self, left: NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>, key: <Self::Node as crate::tree::node::traits::Node>::Key, right: NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>) {
+    fn insert(&mut self, left: NodeRef<'a, Self::Node>, key: <Self::Node as TNode>::Key, right: NodeRef<'a, Self::Node>) {
         let (idx, cell) = self.cells
         .iter_mut()
         .enumerate()
@@ -84,15 +94,15 @@ where Node: crate::tree::node::traits::Node
         self.cells.insert(idx + 1, BranchCell(right_key, right));
     }
 
-    fn new(left: NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>, key: <Self::Node as crate::tree::node::traits::Node>::Key, right: NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>) -> Self {
+    fn new(left: NodeRef<'a, Self::Node>, key: <Self::Node as TNode>::Key, right: NodeRef<'a, Self::Node>) -> Self {
         Self {
             head: left,
             cells: vec![BranchCell(key, right)]
         }
     }
 
-    fn compute_hash<Nodes: BorrowNode<Self::Node>>(&self, nodes: &Nodes) -> <Self::Node as crate::tree::node::traits::Node>::Hash {
-        let mut hasher = <Self::Node as crate::tree::node::traits::Node>::Hash::new_hasher();
+    fn compute_hash(&self) -> <Self::Node as TNode>::Hash {
+        let mut hasher = <Self::Node as TNode>::Hash::new_hasher();
 
         self.head.hash(&mut hasher);
         self.cells.iter().for_each(|cell| cell.hash(&mut hasher));
@@ -101,38 +111,33 @@ where Node: crate::tree::node::traits::Node
     }
 }
 
-pub struct BranchCell<Node: crate::tree::node::traits::Node>(Node::Key, NodeRef<Node::Hash>);
+#[derive(Default)]
+pub struct BranchCell<'a, Node>(Node::Key, NodeRef<'a, Node>)
+where Node: TNode;
 
-impl<Node: crate::tree::node::traits::Node> Clone for BranchCell<Node>
-{
-    fn clone(&self) -> Self {
-        Self(self.0.clone(), self.1.clone())
-    }
-}
-
-impl<Node: crate::tree::node::traits::Node> crate::hash::traits::Hashable for BranchCell<Node>
+impl<'a, Node: TNode> crate::hash::traits::Hashable for BranchCell<'a, Node>
 {
     fn hash<H: Hasher>(&self, hasher: &mut H) {
         self.0.hash(hasher);
-        self.1.hash(hasher);
+        self.1.id().hash(hasher);
     }
 }
 
-impl<Node: crate::tree::node::traits::Node> std::cmp::PartialOrd<Node::Key> for BranchCell<Node>
+impl<'a, Node: TNode> std::cmp::PartialOrd<Node::Key> for BranchCell<'a, Node>
 {
     fn partial_cmp(&self, other: &Node::Key) -> Option<std::cmp::Ordering> {
         self.0.partial_cmp(other)
     }
 }
 
-impl<Node: crate::tree::node::traits::Node>  std::cmp::PartialOrd<&Node::Key> for &mut BranchCell<Node>
+impl<'a, Node: TNode>  std::cmp::PartialOrd<&Node::Key> for &mut BranchCell<'a, Node>
 {
     fn partial_cmp(&self, other: &&Node::Key) -> Option<std::cmp::Ordering> {
         self.0.partial_cmp(other)
     }
 }
 
-impl<Node: crate::tree::node::traits::Node>  std::cmp::PartialEq<Node::Key> for BranchCell<Node>
+impl<'a, Node: TNode>  std::cmp::PartialEq<Node::Key> for BranchCell<'a, Node>
 {
     fn eq(&self, other: &Node::Key) -> bool {
         self.0 == *other

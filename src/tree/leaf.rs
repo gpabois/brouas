@@ -18,7 +18,7 @@ pub mod traits
         fn is_full(&self) -> bool;
     
         // Split the leaf
-        fn split_leaf(&mut self) -> (<Self::Node as crate::tree::node::traits::Node>::Key, Self) where Self: Sized;
+        fn split_leaf(&mut self) -> (Self, <Self::Node as crate::tree::node::traits::Node>::Key, Self) where Self: Sized;
     
         // Insert cell
         fn insert(&mut self, key: <Self::Node as crate::tree::node::traits::Node>::Key, element: <Self::Node as crate::tree::node::traits::Node>::Element);

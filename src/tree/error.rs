@@ -1,19 +1,15 @@
 use std::fmt::Display;
 
-use crate::arena::traits::TLElementRef;
-
-use super::NodeRef;
-
-pub enum TreeError<Hash>
-where Hash: Clone + PartialEq + Display
+pub enum TreeError<Node>
+where Node: crate::tree::node::traits::Node
 {
     ExpectingLeaf,
     MissingLeaf,
-    MissingNode(NodeRef<Hash>)
+    MissingNode(Node::Hash)
 }
 
-impl<Hash> std::fmt::Debug for TreeError<Hash>
-where Hash: Clone + PartialEq + Display
+impl<Node> std::fmt::Debug for TreeError<Node>
+where Node: crate::tree::node::traits::Node
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

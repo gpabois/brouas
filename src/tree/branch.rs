@@ -1,35 +1,35 @@
 use self::traits::Branch as TraitBranch;
-use crate::tree::node::traits::BorrowNode;
-use super::{cells::branch::BranchCells, NodeRef};
+use super::cells::branch::BranchCells;
 use super::cells::branch::traits::BranchCells as TraitBranchCells;
+use super::node::traits::Node as TNode;
+use super::node_ref::NodeRef;
 
 pub mod traits {
     use crate::tree::node::traits::Node;
     use crate::tree::node_ref::NodeRef;
-    use crate::tree::node::traits::BorrowNode;
-
+    
     /// A branch of a Merkle B+ Tree
     pub trait Branch
     {
         type Node: Node;
 
         /// Create a branch
-        fn new(left: NodeRef<<Self::Node as Node>::Hash>, key: <Self::Node as Node>::Key, right: NodeRef<<Self::Node as Node>::Hash>) -> Self;
+        fn new(left: NodeRef<Self::Node>, key: <Self::Node as Node>::Key, right: NodeRef<Self::Node>) -> Self;
 
         /// Insert a cell into the branch
-        fn insert(&mut self, left: NodeRef<<Self::Node as Node>::Hash>, key: <Self::Node as Node>::Key, right: NodeRef<<Self::Node as Node>::Hash>);
+        fn insert(&mut self, left: NodeRef<Self::Node>, key: <Self::Node as Node>::Key, right: NodeRef<Self::Node>);
         
         /// Search the node satifying the key
-        fn search_node<'a>(&'a self, key: &<Self::Node as Node>::Key) -> &'a NodeRef<<Self::Node as Node>::Hash>;
+        fn search_node<'a>(&'a self, key: &<Self::Node as Node>::Key) -> &'a NodeRef<Self::Node>;
 
         /// Split the branch, and returns right node
-        fn split_branch(&mut self) -> (<Self::Node as Node>::Key, Self) where Self: Sized;
+        fn split(&mut self) -> (Self, <Self::Node as Node>::Key, Self) where Self: Sized;
 
         /// Returns the children refs
-        fn children<'a>(&'a self) -> Vec<&'a NodeRef<<Self::Node as Node>::Hash>>;
+        fn children<'a>(&'a self) -> Vec<&'a NodeRef<Self::Node>>;
 
         /// Compute the hash
-        fn compute_hash<Nodes: BorrowNode<Self::Node>>(&self, nodes: &Nodes) -> <Self::Node as Node>::Hash;
+        fn compute_hash(&self) -> <Self::Node as Node>::Hash;
 
         /// 
         fn is_full(&self) -> bool;
@@ -38,58 +38,58 @@ pub mod traits {
 }
 
 #[derive(Clone)]
-pub struct Branch<Node>
+pub struct Branch<'a, Node>
 where Node: crate::tree::node::traits::Node
 {
-    cells: BranchCells<Node>
+    cells: BranchCells<'a, Node>
 }
 
-impl<Node> Branch<Node>
+impl<'a, Node> Branch<'a, Node>
 where Node: crate::tree::node::traits::Node
 {
-    fn new_from_cells(cells: BranchCells<Node>) -> Self {
+    fn new_from_cells(cells: BranchCells<'a, Node>) -> Self {
         Self {cells: cells}
     } 
 }
 
-impl<Node> TraitBranch for Branch<Node>
+impl<'a, Node> TraitBranch for Branch<'a, Node>
 where Node: crate::tree::node::traits::Node
 {
     type Node = Node;
 
-    fn new(left: super::NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>, key: <Self::Node as crate::tree::node::traits::Node>::Key, right: super::NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>) -> Self 
+    fn new(left: NodeRef<'a, Self::Node>, key: <Self::Node as TNode>::Key, right: NodeRef<'a, Node>) -> Self 
     {
         Self {
             cells: BranchCells::new(left, key, right)
         }
     }
 
-    fn insert(&mut self, left: super::NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>, key: <Self::Node as crate::tree::node::traits::Node>::Key, right: super::NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>) 
+    fn insert(&mut self, left: NodeRef<'a, Node>, key: <Self::Node as TNode>::Key, right: NodeRef<'a, Node>) 
     {
         self.cells.insert(left, key, right)
     }
 
     /// Search the node satifying the key
-    fn search_node<'a>(&'a self, key: &<Self::Node as crate::tree::node::traits::Node>::Key) -> &'a NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>
+    fn search_node<'b>(&'b self, key: &<Self::Node as TNode>::Key) -> &'b NodeRef<'a, Self::Node>
     {
         self.cells.search(key)
     }
 
     /// Split the branch, and returns right node
-    fn split_branch(&mut self) -> (<Self::Node as crate::tree::node::traits::Node>::Key, Self) where Self: Sized
+    fn split_branch(&mut self) -> (<Self::Node as TNode>::Key, Self) where Self: Sized
     {
         let (key, right_cells) = self.cells.split();
         (key, Self::new_from_cells(right_cells))
     }
 
-    fn children<'a>(&'a self) -> Vec<&'a super::NodeRef<<Self::Node as crate::tree::node::traits::Node>::Hash>> 
+    fn children<'b>(&'a self) -> Vec<&'b NodeRef<'a, Self::Node>> 
     {
-        todo!()
+        self.cells.children()
     }
 
-    fn compute_hash<Nodes: BorrowNode<Self::Node>>(&self, nodes: &Nodes) -> <Self::Node as crate::tree::node::traits::Node>::Hash 
+    fn compute_hash(&self) -> <Self::Node as TNode>::Hash 
     {
-        self.cells.compute_hash(nodes)
+        self.cells.compute_hash()
     }
 
     fn is_full(&self) -> bool {

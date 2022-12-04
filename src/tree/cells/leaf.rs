@@ -50,7 +50,7 @@ pub mod traits {
         fn search<'a>(&'a self, k: &<Self::Node as crate::tree::node::traits::Node>::Key) -> Option<&'a <Self::Node as crate::tree::node::traits::Node>::Element>;
         fn search_mut<'a>(&'a mut self, k: &<Self::Node as crate::tree::node::traits::Node>::Key) -> Option<&'a mut <Self::Node as crate::tree::node::traits::Node>::Element>;
         
-        fn split(&mut self) -> (<Self::Node as crate::tree::node::traits::Node>::Key, Self);
+        fn split(&mut self) -> (Self, <Self::Node as crate::tree::node::traits::Node>::Key, Self) where Self: Sized;
         fn is_full(&self) -> bool;
         fn insert(&mut self, key: <Self::Node as crate::tree::node::traits::Node>::Key, element: <Self::Node as crate::tree::node::traits::Node>::Element);
     

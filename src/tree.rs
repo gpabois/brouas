@@ -1,6 +1,7 @@
-mod node_ref;
-pub use node_ref::NodeRef;
+pub mod node_ref;
 
+pub mod result;
+pub mod nodes;
 pub mod tree;
 pub mod node;
 pub mod leaf;
