@@ -46,32 +46,32 @@ impl<Key: PartialOrd + PartialEq + Clone, Element: Clone> std::cmp::PartialEq<Ke
 pub mod traits {
     use crate::tree::node::traits::Node as TNode;
 
-    pub trait LeafCells
+    pub trait LeafCells<'a>
     {
-        type Node: TNode;
+        type Node: TNode<'a>;
     
-        fn search<'a>(&'a self, k: &<Self::Node as TNode>::Key) -> Option<&'a <Self::Node as TNode>::Element>;
-        fn search_mut<'a>(&'a mut self, k: &<Self::Node as crate::tree::node::traits::Node>::Key) -> Option<&'a mut <Self::Node as crate::tree::node::traits::Node>::Element>;
+        fn search(&'a self, k: &<Self::Node as TNode<'a>>::Key) -> Option<&'a <Self::Node as TNode<'a>>::Element>;
+        fn search_mut(&'a mut self, k: &<Self::Node as TNode<'a>>::Key) -> Option<&'a mut <Self::Node as TNode<'a>>::Element>;
         
-        fn split(&mut self) -> (Self, <Self::Node as crate::tree::node::traits::Node>::Key, Self) where Self: Sized;
+        fn split(&mut self) -> (Self, <Self::Node as TNode<'a>>::Key, Self) where Self: Sized;
         fn is_full(&self) -> bool;
-        fn insert(&mut self, key: <Self::Node as crate::tree::node::traits::Node>::Key, element: <Self::Node as crate::tree::node::traits::Node>::Element);
+        fn insert(&mut self, key: <Self::Node as TNode<'a>>::Key, element: <Self::Node as TNode<'a>>::Element);
     
-        fn compute_hash(&self) -> <Self::Node as crate::tree::node::traits::Node>::Hash;
+        fn compute_hash(&self) -> <Self::Node as TNode<'a>>::Hash;
     }
 }
 
 use self::traits::LeafCells as TraitLeafCells;
 use crate::hash::traits::{Hash, Hasher};
 
-pub struct LeafCells<Node> 
-where Node: TNode
+pub struct LeafCells<'a, Node> 
+where Node: TNode<'a>
 {
     cells: Vec<LeafCell<Node::Key, Node::Element>>
 }
 
-impl<Node> LeafCells<Node>
-where Node: crate::tree::node::traits::Node
+impl<'a, Node> LeafCells<'a, Node>
+where Node: TNode<'a>
 {
     pub fn new(cell: LeafCell<Node::Key, Node::Element>) -> Self {
         Self{
@@ -80,19 +80,19 @@ where Node: crate::tree::node::traits::Node
     }
 }
 
-impl<Node> TraitLeafCells for LeafCells<Node>
-where Node: crate::tree::node::traits::Node
+impl<'a, Node> TraitLeafCells<'a> for LeafCells<'a, Node>
+where Node: TNode<'a>
 {
     type Node = Node;
 
-    fn search<'a>(&'a self, key: &Node::Key) -> Option<&'a Node::Element> {
+    fn search(&'a self, key: &Node::Key) -> Option<&'a Node::Element> {
         self.cells
         .iter()
         .find(|c| *c == key)
         .and_then(|c| Some(&(c.1)))
     }
 
-    fn search_mut<'a>(&'a mut self, key: &<Self::Node as crate::tree::node::traits::Node>::Key) -> Option<&'a mut <Self::Node as crate::tree::node::traits::Node>::Element> {
+    fn search_mut(&'a mut self, key: &<Self::Node as TNode<'a>>::Key) -> Option<&'a mut <Self::Node as TNode<'a>>::Element> {
         self.cells
         .iter_mut()
         .find(|c| *c == key)
@@ -121,8 +121,8 @@ where Node: crate::tree::node::traits::Node
         self.cells.sort_unstable_by_key(|c| c.0.clone());
     }
 
-    fn compute_hash(&self) -> <Self::Node as crate::tree::node::traits::Node>::Hash {
-        let mut hasher = <Self::Node as crate::tree::node::traits::Node>::Hash::new_hasher();
+    fn compute_hash(&self) -> <Self::Node as TNode<'a>>::Hash {
+        let mut hasher = <Self::Node as TNode>::Hash::new_hasher();
         self.cells.iter().for_each(|cell| cell.update_hash(&mut hasher));
         hasher.finalize()
     }

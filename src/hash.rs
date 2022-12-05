@@ -50,7 +50,7 @@ impl self::traits::Hasher for Sha256Hasher
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, Default)]
 pub struct Sha256
 {
     data: Vec<u8>
