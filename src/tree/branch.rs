@@ -2,10 +2,12 @@ use self::traits::Branch as TraitBranch;
 use super::cells::branch::BranchCells;
 use super::cells::branch::traits::BranchCells as TraitBranchCells;
 use super::node::traits::Node as TNode;
+use super::nodes::traits::Nodes as TNodes;
 use super::node_ref::WeakNode;
 
 pub mod traits {
     use crate::tree::node::traits::Node;
+    use crate::tree::nodes::traits::Nodes as TNodes;
     use crate::tree::node_ref::WeakNode;
     
     /// A branch of a Merkle B+ Tree
@@ -29,7 +31,7 @@ pub mod traits {
         fn children(&'a self) -> Vec<&'a WeakNode<'a, Self::Node>>;
 
         /// Compute the hash
-        fn compute_hash(&self) -> <Self::Node as Node<'a>>::Hash;
+        fn compute_hash<Nodes: TNodes<'a, Node=Self::Node>>(&self, nodes: &mut Nodes) -> <Self::Node as Node<'a>>::Hash;
 
         /// 
         fn is_full(&self) -> bool;
@@ -90,7 +92,7 @@ where Node: TNode<'a>
         self.cells.nodes()
     }
 
-    fn compute_hash(&self) -> <Self::Node as TNode<'a>>::Hash 
+    fn compute_hash<Nodes: TNodes<'a, Node=Self::Node>>(&self, nodes: &mut Nodes) -> <Self::Node as TNode<'a>>::Hash 
     {
         self.cells.compute_hash()
     }

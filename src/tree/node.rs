@@ -44,7 +44,7 @@ impl<Branch, Leaf> NodeType<Branch, Leaf>
 }
 
 pub mod traits {
-    use crate::tree::node_ref::WeakNode;
+    use crate::tree::{node_ref::WeakNode, nodes::traits::Nodes as TNodes};
 
     use super::NodeType;
 
@@ -67,7 +67,7 @@ pub mod traits {
         fn children(&'a self) -> Vec<&'a WeakNode<'a, Self>>;
 
         /// Compute the hash of the node
-        fn compute_hash(&self) -> Self::Hash;
+        fn calculate_hash_if_changed<Nodes: TNodes<'a, Node=Self>>(&mut self, nodes: &mut Nodes) -> Self::Hash;
         
         fn set_hash(&mut self, hash: Self::Hash);
         fn get_hash(&self) -> Option<Self::Hash>;
@@ -155,11 +155,14 @@ where   Hash: Clone + PartialEq + std::fmt::Display + Default + crate::hash::tra
         }
     }
 
-    fn compute_hash(&self) -> Self::Hash {
-        match self.r#as() {
+    fn calculate_hash_if_changed<Nodes: super::nodes::traits::Nodes<'a, Node=Self>>(&mut self, nodes: &mut Nodes) -> Self::Hash {
+        let hash = match self.r#as() {
             NodeType::Branch(branch) => branch.compute_hash(),
             NodeType::Leaf(leaf) => leaf.compute_hash()
-        }
+        };
+
+        self.hash = Some(hash.clone());
+        hash        
     }
 
     fn set_hash(&mut self, hash: Self::Hash) {
