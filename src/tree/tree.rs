@@ -1,6 +1,5 @@
 use std::fmt::Display;
 
-use super::error::TreeError;
 use super::node::traits::Node as TNode;
 use super::node_ref::WeakNode;
 use super::nodes::Nodes;
@@ -165,7 +164,7 @@ where Node: TNode<'a>, Storage: crate::storage::traits::Storage<Key=Node::Hash, 
     /// Insert an element.
     fn insert(&mut self, key: Node::Key, element: Node::Element)  -> TreeResult<'a, (), Node>
     {
-        tree_alg::insert(&mut self.tree, &self.nodes, key, element)
+        tree_alg::insert(&mut self.tree, &mut self.nodes, key, element)
     }
 
     /// Search an element and returns an immutable reference to it.
@@ -177,14 +176,14 @@ where Node: TNode<'a>, Storage: crate::storage::traits::Storage<Key=Node::Hash, 
     /// Search an element and returns an mutable reference to it.
     fn search_mut(&'a mut self, key: &Node::Key) -> TreeResult<'a, Option<&'a mut Node::Element>, Node>
     {
-        tree_alg::search_mut(&mut self.tree, &self.nodes, key)
+        tree_alg::search_mut(&mut self.tree, &mut self.nodes, key)
     }
 
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{*, traits::TreeTransaction as TTreeTransaction};
+    
     use crate::{storage::{InMemory, MutRefStorage}, tree::Node, hash::Sha256};
 
     #[derive(Clone)]

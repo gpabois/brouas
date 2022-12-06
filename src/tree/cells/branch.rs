@@ -1,6 +1,6 @@
 use self::traits::BranchCells as TraitBranchCells;
 use crate::tree::node::traits::Node as TNode;
-use crate::{hash::traits::{Hash, Hasher, Hashable}, tree::node_ref::WeakNode};
+use crate::{hash::traits::{Hashable, Hasher}, tree::node_ref::WeakNode};
 
 pub mod traits {
     use crate::tree::node_ref::WeakNode;
@@ -14,7 +14,6 @@ pub mod traits {
         fn new(left: WeakNode<'a, Self::Node>, key: <Self::Node as TNode<'a>>::Key, right: WeakNode<'a, Self::Node>) -> Self;
         /// Search the node based on the key
         fn search(&'a self, k: &<Self::Node as TNode<'a>>::Key) -> &'a WeakNode<'a, Self::Node>;
-        fn search_mut(&'a mut self, k: &<Self::Node as TNode<'a>>::Key) -> &'a mut WeakNode<'a, Self::Node>;
         /// Split the cells
         fn split(&mut self) -> (Self, <Self::Node as TNode<'a>>::Key, Self) where Self: Sized;
         /// The cells are full
@@ -23,8 +22,9 @@ pub mod traits {
         fn insert(&'a mut self, place: &WeakNode<'a, Self::Node>, left: WeakNode<'a, Self::Node>, key: <Self::Node as TNode<'a>>::Key, right: WeakNode<'a, Self::Node>);
         /// Compute the branch cells hash
         fn compute_hash(&self) -> <Self::Node as TNode<'a>>::Hash;
-
+        /// Return the weak nodes references
         fn nodes(&'a self) -> Vec<&'a WeakNode<'a, Self::Node>>;
+        /// Return the mutable weak nodes references
         fn mut_nodes(&'a mut self) -> Vec<&'a mut WeakNode<'a, Self::Node>>;
     }
 }
@@ -41,6 +41,24 @@ where Node: TNode<'a>
 {
     type Node = Node;
 
+    fn new(left: WeakNode<'a, Self::Node>, key: <Self::Node as TNode<'a>>::Key, right: WeakNode<'a, Self::Node>) -> Self {
+        Self {
+            head: left,
+            cells: vec![BranchCell(key, right)]
+        }
+    }
+
+    fn search(&'a self, k: &<Self::Node as TNode<'a>>::Key) -> &'a WeakNode<'a, Self::Node> {
+        let mut node = &self.head;
+        if let Some(n) = self.cells
+        .iter()
+        .filter(|c| {c <= &k})
+        .last().map(|c| &c.1) 
+        {
+            node = n
+        }
+        node
+    }
 
     fn split(&mut self) -> (Self, <Self::Node as TNode<'a>>::Key, Self) {
         let middle_index = <Self::Node as crate::tree::node::traits::Node>::SIZE/2;
@@ -75,13 +93,6 @@ where Node: TNode<'a>
         self.cells.insert(idx + 1, BranchCell(key, right));
     }
 
-    fn new(left: WeakNode<'a, Self::Node>, key: <Self::Node as TNode<'a>>::Key, right: WeakNode<'a, Self::Node>) -> Self {
-        Self {
-            head: left,
-            cells: vec![BranchCell(key, right)]
-        }
-    }
-
     fn compute_hash(&self) -> <Self::Node as TNode<'a>>::Hash {
         todo!();
         /*
@@ -94,32 +105,8 @@ where Node: TNode<'a>
         */
     }
 
-    fn search(&'a self, k: &<Self::Node as TNode<'a>>::Key) -> &'a WeakNode<'a, Self::Node> {
-        let mut node = &self.head;
-        if let Some(n) = self.cells
-        .iter()
-        .filter(|c| {c <= &k})
-        .last().map(|c| &c.1) 
-        {
-            node = n
-        }
-        node
-    }
-
     fn nodes(&'a self) -> Vec<&'a WeakNode<'a, Self::Node>> {
         todo!()
-    }
-
-    fn search_mut(&'a mut self, k: &<Self::Node as TNode<'a>>::Key) -> &'a mut WeakNode<'a, Self::Node> {
-        let mut node = &mut self.head;
-        if let Some(n) = self.cells
-        .iter_mut()
-        .filter(|c| {c <= &k})
-        .last().map(|c| &mut c.1) 
-        {
-            node = n
-        }
-        node
     }
 
     fn mut_nodes(&'a mut self) -> Vec<&'a mut WeakNode<'a, Self::Node>> {

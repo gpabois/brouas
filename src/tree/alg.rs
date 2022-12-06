@@ -27,12 +27,12 @@ fn search_node<'a, Nodes>(
 
 fn search_mut_node<'a, Nodes>(
     tree: &'a mut Tree<'a, Nodes::Node>, 
-    nodes: &'a Nodes, 
+    nodes: &'a mut Nodes, 
     key: &<Nodes::Node as TNode<'a>>::Key
 ) -> TreeResult<'a, Option<RefMutNode<'a, Nodes::Node>>, Nodes::Node>
     where Nodes: TNodes<'a>
 {
-    if let Some(weak_node) = search_mut_path(tree, nodes, key)?.last() {
+    if let Some(weak_node) = search_path(tree, nodes, key)?.last() {
         Ok(Some(weak_node.upgrade_mut(nodes)?))
     } else {
         Ok(None)
@@ -41,7 +41,7 @@ fn search_mut_node<'a, Nodes>(
 
 fn search_mut_leaf<'a, Nodes>(
     tree: &'a mut Tree<'a, Nodes::Node>, 
-    nodes: &'a Nodes, 
+    nodes: &'a mut Nodes, 
     key: &<Nodes::Node as TNode<'a>>::Key) -> TreeResult<'a, &'a mut <Nodes::Node as TNode<'a>>::Leaf, Nodes::Node>
     where Nodes: TNodes<'a>
 {
@@ -74,7 +74,7 @@ where Nodes: TNodes<'a>
 
 pub fn search_mut<'a, Nodes>(
     tree: &'a mut Tree<'a, Nodes::Node>, 
-    nodes: &'a Nodes, 
+    nodes: &'a mut Nodes, 
     key: &<Nodes::Node as TNode<'a>>::Key
 ) -> TreeResult<'a, Option<&'a mut <Nodes::Node as TNode<'a>>::Element>, Nodes::Node>
 where Nodes: TNodes<'a>
@@ -90,36 +90,6 @@ pub fn search<'a, Nodes>(
     where Nodes: TNodes<'a>
 {
     Ok(search_leaf(tree, nodes, key)?.search(key))
-}
-
-/// Search the element behind the key, if any
-fn search_mut_path<'a, Nodes>(
-    tree: &'a mut Tree<'a, Nodes::Node>, 
-    nodes: &'a Nodes, 
-    key: &<Nodes::Node as TNode<'a>>::Key) -> TreeResult<'a, MutPath<'a, Nodes::Node>, Nodes::Node>
-where Nodes: TNodes<'a>
-{
-    let mut path = MutPath::<'a, Nodes::Node>::new();
-    let mut opt_node_ref = tree.get_mut_root();
-
-    while let Some(node_ref) = opt_node_ref
-    {  
-        path.push(node_ref);
-
-        let node = node_ref.upgrade_mut(nodes)?;
-        
-        match node.take().as_mut() {
-            // It's a branch, look for the right child node, if any
-            NodeType::Branch(branch) => {
-                let child_node_ref = Branch::search_mut_node(branch, key);
-                opt_node_ref = Some(child_node_ref);
-            },
-            // Reach a leaf, we cannot go further
-            _ => {break;}
-        }
-    }
-
-    Ok(path)
 }
 
 /// Search the element behind the key, if any
@@ -154,7 +124,7 @@ where Nodes: TNodes<'a>
 
 pub fn insert<'a, Nodes>(
     tree: &mut Tree<'a, Nodes::Node>, 
-    nodes: &Nodes, 
+    nodes: &'a mut Nodes, 
     key: <Nodes::Node as TNode<'a>>::Key, 
     element: <Nodes::Node as TNode<'a>>::Element) -> TreeResult<'a, (), Nodes::Node>
 where Nodes: TNodes<'a>
@@ -185,7 +155,7 @@ where Nodes: TNodes<'a>
 
 fn insert_to_parent_or_update_root<'a, Nodes>(
     tree: &mut Tree<'a, Nodes::Node>,
-    nodes: &Nodes,
+    nodes: &mut Nodes,
     parent: Option<&&WeakNode<'a, Nodes::Node>>, 
     place: &WeakNode<'a, Nodes::Node>,
     left: WeakNode<'a, Nodes::Node>,
@@ -213,7 +183,7 @@ where Nodes: TNodes<'a> {
 
 fn split_if_required<'a, Nodes>(
     tree: &mut Tree<'a, Nodes::Node>, 
-    nodes: &'a Nodes, 
+    nodes: &'a mut Nodes, 
     mut path: Path<'a, Nodes::Node>) -> TreeResult<'a, (), Nodes::Node>
     where Nodes: TNodes<'a>
 {

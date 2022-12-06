@@ -21,7 +21,6 @@ pub mod traits {
         
         /// Search the node satifying the key
         fn search_node(&'a self, key: &<Self::Node as Node<'a>>::Key) -> &'a WeakNode<Self::Node>;
-        fn search_mut_node(&'a mut self, key: &<Self::Node as Node<'a>>::Key) -> &'a mut WeakNode<Self::Node>;
 
         /// Split the branch, and returns right node
         fn split(&mut self) -> (Self, <Self::Node as Node<'a>>::Key, Self) where Self: Sized;
@@ -100,7 +99,4 @@ where Node: TNode<'a>
         self.cells.is_full()
     }
 
-    fn search_mut_node(&'a mut self, key: &<Self::Node as TNode<'a>>::Key) -> &'a mut WeakNode<Self::Node> {
-        self.cells.search_mut(key)
-    }
 }
