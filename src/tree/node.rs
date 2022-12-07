@@ -1,4 +1,5 @@
 use super::node_ref::WeakNode;
+use super::result::TreeResult;
 use super::{Leaf, Branch};
 use super::leaf::traits::Leaf as TLeaf;
 use super::branch::traits::Branch as TBranch;
@@ -44,58 +45,56 @@ impl<Branch, Leaf> NodeType<Branch, Leaf>
 }
 
 pub mod traits {
-    use crate::tree::{node_ref::WeakNode, nodes::traits::Nodes as TNodes};
+    use crate::tree::{node_ref::WeakNode, nodes::traits::Nodes as TNodes, result::TreeResult};
 
     use super::NodeType;
 
     /// The MBT Node Trait
-    pub trait Node<'a>: From<Self::Leaf> + From<Self::Branch> + PartialEq<Self::Hash>
+    pub trait Node: From<Self::Leaf> + From<Self::Branch> + PartialEq<Self::Hash>
     {
         const SIZE: usize;
 
         type Key: Clone + PartialOrd + PartialEq + Ord + crate::hash::traits::Hashable;
-        type Hash: Clone + PartialEq + std::fmt::Display + Default + crate::hash::traits::Hash + crate::hash::traits::Hashable;
+        type Hash: Copy + Clone + PartialEq + std::fmt::Display + Default + crate::hash::traits::Hash + crate::hash::traits::Hashable;
         type Element: Clone + crate::hash::traits::Hashable;
 
-        type Leaf: crate::tree::leaf::traits::Leaf<'a, Node=Self>;
-        type Branch: crate::tree::branch::traits::Branch<'a, Node=Self>;
+        type Leaf: crate::tree::leaf::traits::Leaf<Node=Self>;
+        type Branch: crate::tree::branch::traits::Branch<Node=Self>;
 
-        fn r#as(&'a self) -> &'a NodeType<Self::Branch, Self::Leaf>;
-        fn as_mut(&'a mut self) -> &'a mut NodeType<Self::Branch, Self::Leaf>;
+        fn r#as(&self) -> &NodeType<Self::Branch, Self::Leaf>;
+        fn as_mut(&mut self) -> &mut NodeType<Self::Branch, Self::Leaf>;
 
         /// Get the children of the node
-        fn children(&'a self) -> Vec<&'a WeakNode<'a, Self>>;
-
+        fn children(&self) -> Vec<&WeakNode< Self>>;
         /// Compute the hash of the node
-        fn calculate_hash_if_changed<Nodes: TNodes<'a, Node=Self>>(&mut self, nodes: &mut Nodes) -> Self::Hash;
-        
+        fn compute_hash<Nodes: TNodes< Node=Self>>(&self, nodes: &Nodes) -> TreeResult<Self::Hash, Self>;
+        /// Set the hash
         fn set_hash(&mut self, hash: Self::Hash);
+        /// Get the hash, if not invalid
         fn get_hash(&self) -> Option<Self::Hash>;
-
         /// Split the node
         fn split(&mut self) -> (Self, Self::Key, Self);
-        
         /// The node is full ?
-        fn is_full(&'a self) -> bool;
+        fn is_full(&self) -> bool;
     }
 
 }
 
-pub struct Node<'a, const SIZE: usize, Hash, Key, Element>
-where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable + Default,
+pub struct Node< const SIZE: usize, Hash, Key, Element>
+where   Hash: Copy + Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable + Default,
         Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable,
         Element: Clone + crate::hash::traits::Hashable 
 {
-    node_type: NodeType<Branch<'a, Self>, Leaf<'a, Self>>,
+    node_type: NodeType<Branch< Self>, Leaf<Self>>,
     hash: Option<Hash>
 }
 
-impl<'a, const SIZE: usize, Hash, Key, Element> From<Branch<'a, Self>> for Node<'a, SIZE, Hash, Key, Element>
-where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable + Default,
+impl< const SIZE: usize, Hash, Key, Element> From<Branch< Self>> for Node<SIZE, Hash, Key, Element>
+where   Hash: Copy + Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable + Default,
         Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable ,
         Element: Clone + crate::hash::traits::Hashable 
 {
-    fn from(branch: Branch<'a, Self>) -> Self {
+    fn from(branch: Branch< Self>) -> Self {
         Self {
             node_type: NodeType::Branch(branch),
             hash: None
@@ -103,12 +102,12 @@ where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash 
     }
 }
 
-impl<'a, const SIZE: usize, Hash, Key, Element> From<Leaf<'a, Self>> for Node<'a, SIZE, Hash, Key, Element>
-where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable + Default,
+impl< const SIZE: usize, Hash, Key, Element> From<Leaf< Self>> for Node< SIZE, Hash, Key, Element>
+where   Hash: Copy + Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable + Default,
         Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable ,
         Element: Clone + crate::hash::traits::Hashable 
 {
-    fn from(leaf: Leaf<'a, Self>) -> Self {
+    fn from(leaf: Leaf< Self>) -> Self {
         Self {
             node_type: NodeType::Leaf(leaf),
             hash: None
@@ -116,8 +115,8 @@ where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash 
     }
 }
 
-impl<'a, const SIZE: usize, Hash, Key, Element> PartialEq<Hash> for Node<'a, SIZE, Hash, Key, Element>
-where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable + Default,
+impl< const SIZE: usize, Hash, Key, Element> PartialEq<Hash> for Node<SIZE, Hash, Key, Element>
+where   Hash: Copy + Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable + Default,
         Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable ,
         Element: Clone + crate::hash::traits::Hashable 
 {
@@ -126,8 +125,8 @@ where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash 
     }
 }
 
-impl<'a, const SIZE: usize, Hash, Key, Element> self::traits::Node<'a> for Node<'a, SIZE, Hash, Key, Element>
-where   Hash: Clone + PartialEq + std::fmt::Display + Default + crate::hash::traits::Hash + crate::hash::traits::Hashable,
+impl<const SIZE: usize, Hash, Key, Element> self::traits::Node for Node< SIZE, Hash, Key, Element>
+where   Hash: Copy + Clone + PartialEq + std::fmt::Display + Default + crate::hash::traits::Hash + crate::hash::traits::Hashable,
         Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable ,
         Element: Clone + crate::hash::traits::Hashable 
 {
@@ -137,8 +136,8 @@ where   Hash: Clone + PartialEq + std::fmt::Display + Default + crate::hash::tra
     type Hash       = Hash;
     type Element    = Element;
 
-    type Leaf       = Leaf<'a, Self>;
-    type Branch     = Branch<'a, Self>;
+    type Leaf       = Leaf< Self>;
+    type Branch     = Branch< Self>;
 
     fn r#as(&self) -> &NodeType<Self::Branch, Self::Leaf> {
         &self.node_type
@@ -148,25 +147,18 @@ where   Hash: Clone + PartialEq + std::fmt::Display + Default + crate::hash::tra
        &mut self.node_type
     }
 
-    fn children(&'a self) -> Vec<&'a WeakNode<'a, Self>> {
+    fn children(&self) -> Vec<&WeakNode< Self>> {
         match self.r#as() {
             NodeType::Branch(branch) => branch.children(),
             _ => vec![]
         }
     }
 
-    fn calculate_hash_if_changed<Nodes: super::nodes::traits::Nodes<'a, Node=Self>>(&mut self, nodes: &mut Nodes) -> Self::Hash {
-        let hash = match self.r#as() {
-            NodeType::Branch(branch) => branch.compute_hash(),
+    fn compute_hash<Nodes: super::nodes::traits::Nodes< Node=Self>>(&self, nodes: &Nodes) -> TreeResult<Self::Hash, Self> {
+        Ok(match self.r#as() {
+            NodeType::Branch(branch) => branch.compute_hash(nodes)?,
             NodeType::Leaf(leaf) => leaf.compute_hash()
-        };
-
-        self.hash = Some(hash.clone());
-        hash        
-    }
-
-    fn set_hash(&mut self, hash: Self::Hash) {
-        self.hash = Some(hash)
+        })
     }
 
     fn get_hash(&self) -> Option<Self::Hash> {
@@ -190,10 +182,14 @@ where   Hash: Clone + PartialEq + std::fmt::Display + Default + crate::hash::tra
         }
     }
 
-    fn is_full(&'a self) -> bool {
+    fn is_full(&self) -> bool {
         match self.r#as() {
             NodeType::Branch(branch) => branch.is_full(),
             NodeType::Leaf(leaf) => leaf.is_full()
         }
+    }
+
+    fn set_hash(&mut self, hash: Self::Hash) {
+        self.hash = Some(hash)
     }
 }

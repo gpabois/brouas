@@ -2,6 +2,7 @@ use std::ops::DerefMut;
 
 use elsa::FrozenVec;
 
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub struct ArenaId(usize);
 pub struct Arena<Element>(FrozenVec<Box<Element>>);
 

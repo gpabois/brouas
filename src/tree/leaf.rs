@@ -7,49 +7,49 @@ pub mod traits
 {
     use crate::tree::node::traits::Node as TNode;
 
-    pub trait Leaf<'a>
+    pub trait Leaf
     {
-        type Node: TNode<'a>;
+        type Node: TNode;
 
         /// Create a new leaf
-        fn new(key: <Self::Node as TNode<'a>>::Key, element: <Self::Node as TNode<'a>>::Element) -> Self;
+        fn new(key: <Self::Node as TNode>::Key, element: <Self::Node as TNode>::Element) -> Self;
      
         /// Search element behind key
-        fn search(&'a self, key: &<Self::Node as TNode<'a>>::Key) -> Option<&'a <Self::Node as TNode<'a>>::Element>;
-        fn search_mut(&'a mut self, key: &<Self::Node as TNode<'a>>::Key) -> Option<&'a mut <Self::Node as TNode<'a>>::Element>;
+        fn search(&self, key: &<Self::Node as TNode>::Key) -> Option<&<Self::Node as TNode>::Element>;
+        fn search_mut(&mut self, key: &<Self::Node as TNode>::Key) -> Option<&mut <Self::Node as TNode>::Element>;
 
         // Check if the leaf is full
         fn is_full(&self) -> bool;
     
         // Split the leaf
-        fn split(&mut self) -> (Self, <Self::Node as TNode<'a>>::Key, Self) where Self: Sized;
+        fn split(&mut self) -> (Self, <Self::Node as TNode>::Key, Self) where Self: Sized;
     
         // Insert cell
-        fn insert(&mut self, key: <Self::Node as TNode<'a>>::Key, element: <Self::Node as TNode<'a>>::Element);
+        fn insert(&mut self, key: <Self::Node as TNode>::Key, element: <Self::Node as TNode>::Element);
         
         /// Compute the hash of the leaf
-        fn compute_hash(&self) -> <Self::Node as TNode<'a>>::Hash;
+        fn compute_hash(&self) -> <Self::Node as TNode>::Hash;
     }   
 }
 
-pub struct Leaf<'a, Node>
-where Node: TNode<'a>
+pub struct Leaf< Node>
+where Node: TNode
 {
-    cells: LeafCells<'a, Node>
+    cells: LeafCells< Node>
 }
 
-impl<'a, Node> Leaf<'a, Node>
-where Node: TNode<'a>
+impl< Node> Leaf< Node>
+where Node: TNode
 {
-    fn from_cells(cells: impl Into<LeafCells<'a, Node>>) -> Self {
+    fn from_cells(cells: impl Into<LeafCells< Node>>) -> Self {
         Self {
             cells: cells.into()
         }
     }
 }
 
-impl<'a, Node> TLeaf<'a> for Leaf<'a, Node>
-where Node: TNode<'a> {
+impl< Node> TLeaf for Leaf< Node>
+where Node: TNode {
     type Node = Node;
 
     fn new(key: Node::Key, element: Node::Element) -> Self {
@@ -59,11 +59,11 @@ where Node: TNode<'a> {
     }
 
     /// Search element behind key
-    fn search(&'a self, key: &Node::Key) -> Option<&'a Node::Element>
+    fn search(&self, key: &Node::Key) -> Option<&Node::Element>
     {
         self.cells.search(key)
     }
-    fn search_mut(&'a mut self, key: &<Self::Node as TNode<'a>>::Key) -> Option<&'a mut <Self::Node as crate::tree::node::traits::Node>::Element> {
+    fn search_mut(&mut self, key: &<Self::Node as TNode>::Key) -> Option<&mut <Self::Node as crate::tree::node::traits::Node>::Element> {
         self.cells.search_mut(key)
     }
     // 
@@ -85,8 +85,8 @@ where Node: TNode<'a> {
         self.cells.insert(key, element);
     }
 
-    fn compute_hash(&self) -> <Self::Node as crate::tree::node::traits::Node<'a>>::Hash {
-        self.cells.compute_hash()
+    fn compute_hash(&self) -> <Self::Node as TNode>::Hash {
+        TraitLeafCells::compute_hash(&self.cells)
     }
 
 

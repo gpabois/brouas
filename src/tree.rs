@@ -1,5 +1,6 @@
 pub mod node_ref;
 
+pub mod transaction;
 pub mod result;
 pub mod nodes;
 pub mod tree;

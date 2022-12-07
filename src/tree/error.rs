@@ -1,7 +1,5 @@
-use std::fmt::Display;
-
-pub enum TreeError<'a, Node>
-where Node: crate::tree::node::traits::Node<'a>
+pub enum TreeError< Node>
+where Node: crate::tree::node::traits::Node
 {
     BorrowMutError,
     ExpectingLeaf,
@@ -10,8 +8,8 @@ where Node: crate::tree::node::traits::Node<'a>
     MissingNode(Node::Hash)
 }
 
-impl<'a, Node> std::fmt::Debug for TreeError<'a, Node>
-where Node: crate::tree::node::traits::Node<'a>
+impl< Node> std::fmt::Debug for TreeError< Node>
+where Node: crate::tree::node::traits::Node
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

@@ -1,25 +1,38 @@
-use std::{cell::{UnsafeCell}};
+use std::{cell::{RefCell}, ops::Deref, rc::{Rc}};
 use crate::{tree::node::traits::Node as TNode, arena::ArenaId};
 
 use super::{nodes::traits::Nodes as TNodes, result::TreeResult};
 
-pub enum CoreWeakNode<'a, Node>
-where Node: TNode<'a>
+#[derive(Clone)]
+pub enum CoreWeakNode<Node>
+where Node: TNode
 {
     ArenaId(ArenaId),
     Id(Node::Hash)
 }
 
-impl<'a, Node> From<ArenaId> for CoreWeakNode<'a, Node>
-where Node: TNode<'a>
+impl<Node> std::cmp::PartialEq for CoreWeakNode<Node>
+where Node: TNode
+{
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::ArenaId(l0), Self::ArenaId(r0)) => l0 == r0,
+            (Self::Id(l0), Self::Id(r0)) => l0 == r0,
+            _ => false
+        }
+    }
+}
+
+impl<Node> From<ArenaId> for CoreWeakNode< Node>
+where Node: TNode
 {
     fn from(arena_id: ArenaId) -> Self {
         Self::ArenaId(arena_id)
     }
 }
 
-impl<'a, Node> Default for CoreWeakNode<'a, Node>
-where Node: TNode<'a>
+impl< Node> Default for CoreWeakNode< Node>
+where Node: TNode
 {
     fn default() -> Self {
         Self::Id(Node::Hash::default())
@@ -57,44 +70,68 @@ impl<'a, Node> From<&'a Node> for RefNode<'a, Node>
 }
 
 #[derive(Default)]
-pub struct WeakNode<'a, Node>(UnsafeCell<CoreWeakNode<'a, Node>>)
-where Node: TNode<'a>;
+pub struct WeakNode<Node>(Rc<RefCell<CoreWeakNode<Node>>>) where Node: TNode;
 
-impl<'a, Node> std::fmt::Display for WeakNode<'a, Node>
-where Node: TNode<'a>
+impl< Node> std::fmt::Display for WeakNode< Node>
+where Node: TNode
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "node::{}", self.id())
+        write!(f, "node::{}", "node")
     }
 }
 
-impl<'a, Node> From<ArenaId> for WeakNode<'a, Node>
-where Node: TNode<'a>
+impl< Node> From<ArenaId> for WeakNode< Node>
+where Node: TNode
 {
     fn from(arena_id: ArenaId) -> Self {
-        Self(UnsafeCell::new(CoreWeakNode::from(arena_id)))
+        Self(Rc::new(RefCell::new(CoreWeakNode::from(arena_id))))
     }
 }
 
-impl<'a, Node> WeakNode<'a, Node>
-where Node: TNode<'a>
+impl<Node> std::cmp::PartialEq for WeakNode<Node>
+where Node: TNode
+{
+    fn eq(&self, other: &Self) -> bool {
+        *self.0.borrow().deref() == *other.0.borrow().deref()
+    }
+}
+
+impl<Node> Clone for WeakNode<Node>
+where Node: TNode
+{
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+
+impl< Node> WeakNode< Node>
+where Node: TNode
 {
     pub fn to_owned(&mut self) -> Self {
-        Self(UnsafeCell::new(self.0.into_inner()))
+        Self(Rc::new(RefCell::new(self.0.take())))
     }
 
-    pub fn upgrade_mut<Nodes: TNodes<'a, Node=Node>>(&'a mut self, nodes: &mut Nodes) -> TreeResult<'a, RefMutNode<'a, Node>, Node>
+    pub fn get_hash<Nodes: TNodes<Node=Node>>(&self, nodes: &Nodes) -> TreeResult<Option<Node::Hash>, Node>
+    {
+        match *self.0.borrow() {
+            CoreWeakNode::ArenaId(_) => Ok(self.upgrade(nodes)?.take().get_hash()),
+            CoreWeakNode::Id(id) => Ok(Some(id.clone()))
+        }
+    }
+
+    pub fn upgrade_mut<'a, Nodes: TNodes< Node=Node>>(&self, nodes: &'a mut Nodes) -> TreeResult<RefMutNode<'a, Node>, Node>
     {
         nodes.upgrade_mut(self)
     }
 
-    pub fn upgrade<Nodes: TNodes<'a, Node=Node>>(&'a self, nodes: &Nodes) -> TreeResult<RefNode<'a, Node>, Node>
+    pub fn upgrade<'a, Nodes: TNodes< Node=Node>>(&self, nodes: &'a Nodes) -> TreeResult<RefNode<'a, Node>, Node>
     {
         nodes.upgrade(self)
     }
 
     pub fn is_loaded(&self) -> bool {
-        if let CoreWeakNode::ArenaId(_) = self.0.get_mut() {
+        if let CoreWeakNode::ArenaId(_) = *self.0.borrow() {
             true
         } else {
             false
@@ -102,23 +139,21 @@ where Node: TNode<'a>
     }
 
     pub fn load(&self, arena_id: ArenaId) {
-        unsafe {
-            *self.0.get().as_mut().unwrap() = CoreWeakNode::ArenaId(arena_id);
-        }
+        *self.0.borrow_mut() = CoreWeakNode::ArenaId(arena_id);
     }
 
-    pub fn as_arena_id(&self) -> Option<&ArenaId>
+    pub fn as_arena_id(&self) -> Option<ArenaId>
     {
-        match self.0.get_mut() {
-            CoreWeakNode::ArenaId(id) => Some(id),
+        match self.0.borrow().deref() {
+            CoreWeakNode::ArenaId(id) => Some(*id),
             _ => None
         }
     }
 
-    pub fn as_node_id(&self) -> Option<&Node::Hash>
+    pub fn as_node_id(&self) -> Option<Node::Hash>
     {
-        match self.0.get_mut() {
-            CoreWeakNode::Id(id) => Some(id),
+        match self.0.borrow().deref() {
+            CoreWeakNode::Id(id) => Some(*id),
             _ => None
         }
     }
