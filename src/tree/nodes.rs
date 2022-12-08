@@ -1,6 +1,6 @@
 use crate::arena::{Arena, ArenaId};
 use crate::tree::node::traits::Node as TNode;
-use crate::storage::traits::Storage as TStorage;
+use crate::storage::traits::ReadOnlyStorage as TStorage;
 use self::traits::Nodes as TNodes;
 
 use super::error::TreeError;
@@ -20,7 +20,7 @@ pub mod traits {
     }
 }
 
-pub struct Nodes< Node, Storage>
+pub struct Nodes<Node, Storage>
 where Node: TNode,
       Storage: TStorage<Key=Node::Hash, Value=Node>
 {

@@ -1,4 +1,4 @@
-use std::{cell::{RefCell}, ops::Deref, rc::{Rc}};
+use std::{cell::{RefCell}, ops::Deref, rc::{Rc}, borrow::ToOwned};
 use crate::{tree::node::traits::Node as TNode, arena::ArenaId};
 
 use super::{nodes::traits::Nodes as TNodes, result::TreeResult};
@@ -54,10 +54,35 @@ impl<'a, Node> From<&'a mut Node> for RefMutNode<'a, Node>
     }
 }
 
+impl<'a, Node> std::ops::Deref for RefMutNode<'a, Node>
+{
+    type Target = Node;
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+impl<'a, Node> std::ops::DerefMut for RefMutNode<'a, Node>
+{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0
+    }
+}
+
 pub struct RefNode<'a, Node>(&'a Node);
 impl<'a, Node> RefNode<'a, Node>
 {
     pub fn take(self) -> &'a Node {
+        self.0
+    }
+}
+
+impl<'a, Node> std::ops::Deref for RefNode<'a, Node>
+{
+    type Target = Node;
+
+    fn deref(&self) -> &Self::Target {
         self.0
     }
 }
@@ -96,11 +121,17 @@ where Node: TNode
     }
 }
 
-impl<Node> Clone for WeakNode<Node>
+impl<Node> ToOwned for WeakNode<Node> 
 where Node: TNode
 {
-    fn clone(&self) -> Self {
+    type Owned = Self;
+
+    fn to_owned(&self) -> Self::Owned {
         Self(self.0.clone())
+    }
+
+    fn clone_into(&self, target: &mut Self::Owned) {
+        *target = self.to_owned();
     }
 }
 
@@ -108,13 +139,9 @@ where Node: TNode
 impl< Node> WeakNode< Node>
 where Node: TNode
 {
-    pub fn to_owned(&mut self) -> Self {
-        Self(Rc::new(RefCell::new(self.0.take())))
-    }
-
     pub fn get_hash<Nodes: TNodes<Node=Node>>(&self, nodes: &Nodes) -> TreeResult<Option<Node::Hash>, Node>
     {
-        match *self.0.borrow() {
+        match self.0.borrow().deref() {
             CoreWeakNode::ArenaId(_) => Ok(self.upgrade(nodes)?.take().get_hash()),
             CoreWeakNode::Id(id) => Ok(Some(id.clone()))
         }
@@ -153,7 +180,7 @@ where Node: TNode
     pub fn as_node_id(&self) -> Option<Node::Hash>
     {
         match self.0.borrow().deref() {
-            CoreWeakNode::Id(id) => Some(*id),
+            CoreWeakNode::Id(id) => Some(id.clone()),
             _ => None
         }
     }

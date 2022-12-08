@@ -44,7 +44,19 @@ pub mod traits {
 pub struct Branch< Node>
 where Node: TNode
 {
-    cells: BranchCells< Node>
+    cells: BranchCells<Node>
+}
+
+impl<Node> ToOwned for Branch<Node>
+where Node: TNode
+{
+    type Owned = Self;
+
+    fn to_owned(&self) -> Self::Owned {
+        Self {
+            cells: self.cells.to_owned()
+        }
+    }
 }
 
 impl< Node> Branch< Node>

@@ -48,6 +48,18 @@ where Node: TNode
     }
 }
 
+impl<Node> ToOwned for Leaf<Node>
+where Node: TNode
+{
+    type Owned = Self;
+
+    fn to_owned(&self) -> Self::Owned {
+        Self {
+            cells: self.cells.to_owned()
+        }
+    }
+}
+
 impl< Node> TLeaf for Leaf< Node>
 where Node: TNode {
     type Node = Node;

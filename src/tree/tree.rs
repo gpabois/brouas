@@ -33,7 +33,7 @@ impl<Node> Path<Node>
 
 #[derive(Default)]
 pub struct Tree< Node> where Node: TNode {
-    root: Option<WeakNode< Node>>
+    root: Option<WeakNode<Node>>
 }
 
 impl< Node> Display for Tree< Node> 
@@ -56,12 +56,6 @@ where Node: TNode
         write!(f, "{}", self)
     }
 }
-
-/// Create a new Merkle B+ Tree
-pub fn new_merkle_bp_tree<const SIZE: usize, Hash, Key, Element> () -> Tree<Node<SIZE, Hash, Key, Element>>
-{
-    Tree::empty()
-} 
 
 impl<Node> Tree<Node>
 where Node: TNode

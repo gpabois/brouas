@@ -2,25 +2,35 @@ use super::node::traits::Node as TNode;
 use super::nodes::Nodes;
 use super::result::{TreeResult};
 use super::{alg as tree_alg, Tree};
+use crate::storage::traits::ReadOnlyStorage as TReadOnlyStorage;
+use self::traits::TreeTransaction as TraitTreeTransaction;
+use self::traits::ReadOnlyTreeTransaction as TraitReadOnlyTransaction;
 use crate::storage::traits::Storage as TStorage;
 
 pub mod traits {
     use crate::tree::{node::traits::{Node as TNode}, result::TreeResult};
     
-    pub trait TreeTransaction {
+    pub trait ReadOnlyTreeTransaction {
         type Node: TNode;
 
-        fn insert(&mut self, 
-            key: <Self::Node as TNode>::Key, 
-            element: <Self::Node as TNode>::Element
-        ) -> TreeResult< (), Self::Node>;
-        
-        fn search(& self, key: &<Self::Node as TNode>::Key)
-            -> TreeResult< Option<& <Self::Node as TNode>::Element>, Self::Node>;
+        fn search<IntoKey>(& self, key: IntoKey)
+            -> TreeResult< Option<&<Self::Node as TNode>::Element>, Self::Node>
+        where IntoKey: Into<<Self::Node as TNode>::Key>;
+                
+    }
+
+    pub trait TreeTransaction : ReadOnlyTreeTransaction {
+
+        fn insert<IntoKey, IntoElement>(&mut self, 
+            key: IntoKey, 
+            element: IntoElement
+        ) -> TreeResult< (), Self::Node>
+        where IntoKey: Into<<Self::Node as TNode>::Key>,
+              IntoElement: Into<<Self::Node as TNode>::Element>;
         
         fn search_mut(& mut self, key: &<Self::Node as TNode>::Key)
             -> TreeResult< Option<& mut <Self::Node as TNode>::Element>, Self::Node>;
-        
+
         fn commit(&mut self) -> TreeResult<Option<<Self::Node as TNode>::Hash>, Self::Node>;
 
     }
@@ -29,14 +39,14 @@ pub mod traits {
 /// Merkle B+ Tree
 pub struct TreeTransaction< Node, Storage> 
 where Node: TNode, 
-      Storage: TStorage<Key=Node::Hash, Value=Node>
+      Storage: TReadOnlyStorage<Key=Node::Hash, Value=Node>
 {
     tree: Tree<Node>,
     nodes: Nodes<Node, Storage>
 }
 
 impl< Node, Storage> TreeTransaction< Node, Storage> 
-where Node: TNode, Storage: crate::storage::traits::Storage<Key=Node::Hash, Value=Node>
+where Node: TNode, Storage: TReadOnlyStorage<Key=Node::Hash, Value=Node>
 {
     pub fn new(tree: Tree<Node>, storage: Storage) -> Self
     {
@@ -45,23 +55,31 @@ where Node: TNode, Storage: crate::storage::traits::Storage<Key=Node::Hash, Valu
             nodes: Nodes::from(storage)
         }
     }
+
 }
 
-impl< Node, Storage> self::traits::TreeTransaction for TreeTransaction< Node, Storage>
-where Node: TNode + 'static, Storage: crate::storage::traits::Storage<Key=Node::Hash, Value=Node>
+impl<Node, Storage> TraitReadOnlyTransaction for TreeTransaction<Node, Storage>
+where Node: TNode + 'static, Storage: TReadOnlyStorage<Key=Node::Hash, Value=Node>   
 {
     type Node = Node;
-    
-    /// Insert an element.
-    fn insert(&mut self, key: Node::Key, element: Node::Element)  -> TreeResult< (), Node>
-    {
-        tree_alg::insert(&mut self.tree, &mut self.nodes, key, element)
-    }
 
-    /// Search an element and returns an immutable reference to it.
-    fn search(& self, key: &Node::Key) -> TreeResult< Option<& Node::Element>, Node>
-    {
-        tree_alg::search(&self.tree, &self.nodes, key)
+    fn search<IntoKey>(& self, key: IntoKey)
+            -> TreeResult< Option<&<Self::Node as TNode>::Element>, Self::Node>
+        where IntoKey: Into<<Self::Node as TNode>::Key> {
+        tree_alg::search(&self.tree, &self.nodes, &key.into())
+    }
+}
+
+impl<Node, Storage> TraitTreeTransaction for TreeTransaction< Node, Storage>
+where Node: TNode + 'static, Storage: TReadOnlyStorage<Key=Node::Hash, Value=Node>
+{
+    fn insert<IntoKey, IntoElement>(&mut self, 
+            key: IntoKey, 
+            element: IntoElement
+        ) -> TreeResult< (), Self::Node>
+        where IntoKey: Into<<Self::Node as TNode>::Key>,
+              IntoElement: Into<<Self::Node as TNode>::Element> {
+        tree_alg::insert(&mut self.tree, &mut self.nodes, key.into(), element.into())
     }
 
     /// Search an element and returns an mutable reference to it.
@@ -80,15 +98,23 @@ where Node: TNode + 'static, Storage: crate::storage::traits::Storage<Key=Node::
 
 #[cfg(test)]
 mod tests {
-    use crate::{storage::{InMemory, MutRefStorage}, tree::{Node, new_merkle_bp_tree}, hash::Sha256};
-
+    use crate::{storage::{InMemory, ReadOnlyStorage}, tree::{Node, indexes::ByteIndex, Tree}, hash::Sha256};
     use super::TreeTransaction;
+    use super::traits::TreeTransaction as TraitTreeTransaction;
+    use super::traits::ReadOnlyTreeTransaction as TraitReadOnlyTransaction;
 
-    #[derive(Clone)]
+    #[derive(Clone, PartialEq, Debug)]
     pub struct TestElement {
         data: u8
     }
     
+    impl From<u8> for TestElement
+    {
+        fn from(value: u8) -> Self {
+            Self{data: value}
+        }
+    }
+
     impl crate::hash::traits::Hashable for TestElement
     {
         fn hash<H: crate::hash::traits::Hasher>(&self, hasher: &mut H) {
@@ -96,30 +122,24 @@ mod tests {
         }
     }
 
-    #[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
-    pub struct TestKey {
-        data: u8
-    }
-
-    impl TestKey {
-        pub fn new(data: u8) -> Self {
-            Self {
-                data: data
-            }
-        }
-    }
-
-    impl crate::hash::traits::Hashable for TestKey {
-        fn hash<H: crate::hash::traits::Hasher>(&self, hasher: &mut H) {
-            hasher.update([self.data])
-        }
-    }
-
     #[test]
     pub fn test_insert()
     {
-        let tree = new_merkle_bp_tree::<10, Sha256, TestKey, TestElement>();
-        let tx = TreeTransaction::new(tree);
+        let tree = Tree::<Node<10, Sha256, ByteIndex, TestElement>>::empty();
+        let storage = InMemory::<Sha256, Node<10, Sha256, ByteIndex, TestElement>>::new();
+
+        let mut tx = TreeTransaction::new(
+            tree, 
+            ReadOnlyStorage::from(&storage)
+        );
+
+        tx.insert( 1, 2).expect("cannot insert element");
+        
+        assert_eq!(
+            *tx.search(1).expect("cannot search element").unwrap(), 
+            TestElement::from(2)
+        );
+
     }
 
 }

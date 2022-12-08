@@ -37,9 +37,22 @@ pub mod traits {
 pub struct BranchCells< Node>
 where Node: TNode
 {
-    head: WeakNode< Node>,
-    cells: Vec<BranchCell< Node>>
+    head: WeakNode<Node>,
+    cells: Vec<BranchCell<Node>>
 } 
+
+impl<Node> ToOwned for BranchCells<Node>
+where Node: TNode
+{
+    type Owned = Self;
+
+    fn to_owned(&self) -> Self::Owned {
+        Self {
+            head: self.head.to_owned(),
+            cells: self.cells.iter().map(ToOwned::to_owned).collect()
+        }
+    }
+}
 
 impl< Node> TraitBranchCells for BranchCells< Node>
 where Node: TNode
@@ -128,6 +141,16 @@ where Node: TNode
 #[derive(Default)]
 pub struct BranchCell< Node>(Node::Key, WeakNode< Node>)
 where Node: TNode;
+
+impl<Node> ToOwned for BranchCell<Node>
+where Node: TNode
+{
+    type Owned = Self;
+
+    fn to_owned(&self) -> Self::Owned {
+        Self(self.0.clone(), self.1.to_owned())
+    }
+}
 
 impl< Node: TNode> std::cmp::PartialOrd<Node::Key> for BranchCell< Node>
 {

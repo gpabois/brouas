@@ -1,5 +1,6 @@
 pub mod node_ref;
 
+pub mod indexes;
 pub mod transaction;
 pub mod result;
 pub mod nodes;

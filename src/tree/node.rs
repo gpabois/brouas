@@ -4,14 +4,28 @@ use super::{Leaf, Branch};
 use super::leaf::traits::Leaf as TLeaf;
 use super::branch::traits::Branch as TBranch;
 
-#[derive(Clone)]
 pub enum NodeType<Branch, Leaf>
+where Leaf: TLeaf, Branch: TBranch
 {
     Leaf(Leaf),
     Branch(Branch)
 }
 
+impl<Branch, Leaf> ToOwned for NodeType<Branch, Leaf>
+where Leaf: TLeaf + ToOwned<Owned=Leaf>, Branch: TBranch + ToOwned<Owned=Branch>
+{
+    type Owned = Self;
+
+    fn to_owned(&self) -> Self::Owned {
+        match self {
+            NodeType::Leaf(leaf) => NodeType::Leaf(leaf.to_owned()),
+            NodeType::Branch(branch) => NodeType::Branch(branch.to_owned())
+        }
+    }
+}
+
 impl<Branch, Leaf> NodeType<Branch, Leaf>
+where Leaf: TLeaf, Branch: TBranch
 {
     pub fn as_branch(&self) -> Option<&Branch>
     {
@@ -55,8 +69,8 @@ pub mod traits {
         const SIZE: usize;
 
         type Key: Clone + PartialOrd + PartialEq + Ord + crate::hash::traits::Hashable;
-        type Hash: Copy + Clone + PartialEq + std::fmt::Display + Default + crate::hash::traits::Hash + crate::hash::traits::Hashable;
-        type Element: Clone + crate::hash::traits::Hashable;
+        type Hash:  Clone + PartialEq + std::fmt::Display + Default + crate::hash::traits::Hash + crate::hash::traits::Hashable;
+        type Element: ToOwned<Owned=Self::Element> + crate::hash::traits::Hashable;
 
         type Leaf: crate::tree::leaf::traits::Leaf<Node=Self>;
         type Branch: crate::tree::branch::traits::Branch<Node=Self>;
@@ -80,21 +94,36 @@ pub mod traits {
 
 }
 
-pub struct Node< const SIZE: usize, Hash, Key, Element>
-where   Hash: Copy + Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable + Default,
+pub struct Node<const SIZE: usize, Hash, Key, Element>
+where   Hash:  Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable + Default,
         Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable,
-        Element: Clone + crate::hash::traits::Hashable 
+        Element: ToOwned<Owned=Element> + crate::hash::traits::Hashable 
 {
-    node_type: NodeType<Branch< Self>, Leaf<Self>>,
+    node_type: NodeType<Branch<Self>, Leaf<Self>>,
     hash: Option<Hash>
 }
 
-impl< const SIZE: usize, Hash, Key, Element> From<Branch< Self>> for Node<SIZE, Hash, Key, Element>
-where   Hash: Copy + Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable + Default,
-        Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable ,
-        Element: Clone + crate::hash::traits::Hashable 
+impl<const SIZE: usize, Hash, Key, Element> ToOwned for Node<SIZE, Hash, Key, Element>
+where   Hash: Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable + Default,
+        Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable,
+        Element: ToOwned<Owned=Element> + crate::hash::traits::Hashable 
 {
-    fn from(branch: Branch< Self>) -> Self {
+    type Owned = Self;
+
+    fn to_owned(&self) -> Self::Owned {
+        Self {
+            node_type: self.node_type.to_owned(),
+            hash: self.hash.clone()
+        }
+    }
+}
+
+impl< const SIZE: usize, Hash, Key, Element> From<Branch< Self>> for Node<SIZE, Hash, Key, Element>
+where   Hash:  Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable + Default,
+        Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable ,
+        Element: ToOwned<Owned=Element> + crate::hash::traits::Hashable 
+{
+    fn from(branch: Branch<Self>) -> Self {
         Self {
             node_type: NodeType::Branch(branch),
             hash: None
@@ -103,11 +132,11 @@ where   Hash: Copy + Clone + PartialEq + std::fmt::Display + crate::hash::traits
 }
 
 impl< const SIZE: usize, Hash, Key, Element> From<Leaf< Self>> for Node< SIZE, Hash, Key, Element>
-where   Hash: Copy + Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable + Default,
+where   Hash:  Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable + Default,
         Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable ,
-        Element: Clone + crate::hash::traits::Hashable 
+        Element: ToOwned<Owned=Element> + crate::hash::traits::Hashable 
 {
-    fn from(leaf: Leaf< Self>) -> Self {
+    fn from(leaf: Leaf<Self>) -> Self {
         Self {
             node_type: NodeType::Leaf(leaf),
             hash: None
@@ -116,9 +145,9 @@ where   Hash: Copy + Clone + PartialEq + std::fmt::Display + crate::hash::traits
 }
 
 impl< const SIZE: usize, Hash, Key, Element> PartialEq<Hash> for Node<SIZE, Hash, Key, Element>
-where   Hash: Copy + Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable + Default,
+where   Hash:  Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable + Default,
         Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable ,
-        Element: Clone + crate::hash::traits::Hashable 
+        Element: ToOwned<Owned=Element> + crate::hash::traits::Hashable 
 {
     fn eq(&self, other: &Hash) -> bool {
         self.hash.eq(&Some(other.clone()))
@@ -126,9 +155,9 @@ where   Hash: Copy + Clone + PartialEq + std::fmt::Display + crate::hash::traits
 }
 
 impl<const SIZE: usize, Hash, Key, Element> self::traits::Node for Node< SIZE, Hash, Key, Element>
-where   Hash: Copy + Clone + PartialEq + std::fmt::Display + Default + crate::hash::traits::Hash + crate::hash::traits::Hashable,
+where   Hash:  Clone + PartialEq + std::fmt::Display + Default + crate::hash::traits::Hash + crate::hash::traits::Hashable,
         Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable ,
-        Element: Clone + crate::hash::traits::Hashable 
+        Element: ToOwned<Owned=Element> + crate::hash::traits::Hashable 
 {
     const SIZE: usize = SIZE;
 

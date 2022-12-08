@@ -1,7 +1,17 @@
 
-use crate::tree::node::traits::Node as TNode;
+use crate::tree::{node::traits::Node as TNode};
 
 pub struct LeafCell<Key, Element>(Key, Element);
+
+impl<Key,Element> ToOwned for LeafCell<Key, Element>
+where Key: Clone, Element: ToOwned<Owned=Element>
+{
+    type Owned = Self;
+
+    fn to_owned(&self) -> Self::Owned {
+        Self(self.0.clone(), self.1.to_owned())
+    }
+}
 
 impl<Key, Element> LeafCell<Key, Element>
 {
@@ -12,7 +22,7 @@ impl<Key, Element> LeafCell<Key, Element>
 }
 
 impl<Key, Element> LeafCell<Key, Element>
-where Key: Clone + crate::hash::traits::Hashable, Element: crate::hash::traits::Hashable + Clone
+where Key: crate::hash::traits::Hashable, Element: crate::hash::traits::Hashable
 {
     pub fn update_hash<Hasher: crate::hash::traits::Hasher>(&self, hasher: &mut Hasher)
     {
@@ -21,14 +31,16 @@ where Key: Clone + crate::hash::traits::Hashable, Element: crate::hash::traits::
     }
 }
 
-impl<Key: PartialOrd + PartialEq + Clone, Element: Clone> std::cmp::PartialOrd<Key> for LeafCell<Key, Element>
+impl<Key, Element> PartialOrd<Key> for LeafCell<Key, Element>
+where Key: PartialOrd
 {
     fn partial_cmp(&self, other: &Key) -> Option<std::cmp::Ordering> {
         self.0.partial_cmp(other)
     }
 }
 
-impl<Key: PartialOrd + PartialEq + Clone, Element: Clone> std::cmp::PartialOrd<&Key> for &mut LeafCell<Key, Element>
+impl<Key, Element> PartialOrd<&Key> for &mut LeafCell<Key, Element>
+where Key: PartialOrd
 {
     fn partial_cmp(&self, other: &&Key) -> Option<std::cmp::Ordering> {
         self.0.partial_cmp(other)
@@ -36,7 +48,8 @@ impl<Key: PartialOrd + PartialEq + Clone, Element: Clone> std::cmp::PartialOrd<&
 }
 
 
-impl<Key: PartialOrd + PartialEq + Clone, Element: Clone> std::cmp::PartialEq<Key> for LeafCell<Key, Element>
+impl<Key, Element> PartialEq<Key> for LeafCell<Key, Element>
+where Key: PartialOrd,
 {
     fn eq(&self, other: &Key) -> bool {
         self.0 == *other
@@ -76,6 +89,18 @@ where Node: TNode
     pub fn new(cell: LeafCell<Node::Key, Node::Element>) -> Self {
         Self{
             cells: vec![cell]
+        }
+    }
+}
+
+impl<Node> ToOwned for LeafCells<Node>
+where Node: TNode
+{
+    type Owned = Self;
+
+    fn to_owned(&self) -> Self::Owned {
+        Self {
+            cells: self.cells.iter().map(|w| w.to_owned()).collect()
         }
     }
 }

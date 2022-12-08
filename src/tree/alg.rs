@@ -98,11 +98,11 @@ fn search_path<'a, Nodes>(
 where Nodes: TNodes
 {
     let mut path = Path::< Nodes::Node>::new();
-    let mut opt_node_ref = tree.get_root().cloned();
+    let mut opt_node_ref = tree.get_root().to_owned();
 
     while let Some(node_ref) = opt_node_ref
     {  
-        path.push(node_ref.clone());
+        path.push(node_ref.to_owned());
 
         let node = node_ref.upgrade(nodes)?;
         
@@ -191,7 +191,7 @@ where Nodes: TNodes
     while let Some((depth, weak_node)) = stack.pop()
     {
         if weak_node.is_loaded() {
-            updated_nodes.push((depth, weak_node.clone()));
+            updated_nodes.push((depth, weak_node.to_owned()));
             let node_ref = nodes.upgrade(weak_node)?.take();
             
             node_ref
