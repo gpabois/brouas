@@ -1,3 +1,6 @@
+use serde::{Serialize, Deserialize};
+use serde::de::DeserializeOwned;
+
 use self::traits::Branch as TraitBranch;
 use super::cells::branch::BranchCells;
 use super::cells::branch::traits::BranchCells as TraitBranchCells;
@@ -7,13 +10,16 @@ use super::node_ref::WeakNode;
 use super::result::TreeResult;
 
 pub mod traits {
+    use serde::Serialize;
+    use serde::de::DeserializeOwned;
+
     use crate::tree::node::traits::Node;
     use crate::tree::nodes::traits::Nodes as TNodes;
     use crate::tree::node_ref::WeakNode;
     use crate::tree::result::TreeResult;
     
     /// A branch of a Merkle B+ Tree
-    pub trait Branch
+    pub trait Branch : Serialize + DeserializeOwned
     {
         type Node: Node;
 
@@ -41,6 +47,7 @@ pub mod traits {
      
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Branch< Node>
 where Node: TNode
 {
@@ -67,7 +74,7 @@ where Node: TNode
     } 
 }
 
-impl< Node> TraitBranch for Branch< Node>
+impl< Node> TraitBranch for Branch<Node>
 where Node: TNode
 {
     type Node = Node;

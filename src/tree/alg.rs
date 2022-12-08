@@ -225,6 +225,8 @@ where Nodes: TNodes
         if node.get_hash().is_none() {
             let hash = node.compute_hash(nodes)?;
             weak_node.upgrade_mut(nodes)?.take().set_hash(hash);
+            /// Unload the node
+            weak_node.unload(nodes);
         }
 
     }

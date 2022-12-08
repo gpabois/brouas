@@ -1,6 +1,9 @@
 
+use serde::{Serialize, Deserialize};
+
 use crate::tree::{node::traits::Node as TNode};
 
+#[derive(Serialize, Deserialize)]
 pub struct LeafCell<Key, Element>(Key, Element);
 
 impl<Key,Element> ToOwned for LeafCell<Key, Element>
@@ -77,6 +80,7 @@ pub mod traits {
 use self::traits::LeafCells as TraitLeafCells;
 use crate::hash::traits::{Hash, Hasher};
 
+#[derive(Serialize, Deserialize)]
 pub struct LeafCells< Node> 
 where Node: TNode
 {

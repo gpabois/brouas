@@ -4,12 +4,17 @@ use super::{Leaf, Branch};
 use super::leaf::traits::Leaf as TLeaf;
 use super::branch::traits::Branch as TBranch;
 
+use serde::{Serialize, Deserialize};
+
+#[derive(Serialize)]
 pub enum NodeType<Branch, Leaf>
 where Leaf: TLeaf, Branch: TBranch
 {
     Leaf(Leaf),
     Branch(Branch)
 }
+
+
 
 impl<Branch, Leaf> ToOwned for NodeType<Branch, Leaf>
 where Leaf: TLeaf + ToOwned<Owned=Leaf>, Branch: TBranch + ToOwned<Owned=Branch>
@@ -94,6 +99,7 @@ pub mod traits {
 
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Node<const SIZE: usize, Hash, Key, Element>
 where   Hash:  Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash + crate::hash::traits::Hashable + Default,
         Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable,
@@ -154,7 +160,7 @@ where   Hash:  Clone + PartialEq + std::fmt::Display + crate::hash::traits::Hash
     }
 }
 
-impl<const SIZE: usize, Hash, Key, Element> self::traits::Node for Node< SIZE, Hash, Key, Element>
+impl<const SIZE: usize, Hash, Key, Element> self::traits::Node for Node<SIZE, Hash, Key, Element>
 where   Hash:  Clone + PartialEq + std::fmt::Display + Default + crate::hash::traits::Hash + crate::hash::traits::Hashable,
         Key: PartialEq + PartialOrd + Ord + Clone + crate::hash::traits::Hashable ,
         Element: ToOwned<Owned=Element> + crate::hash::traits::Hashable 

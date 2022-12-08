@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use crate::tree::cells::leaf::{LeafCells, LeafCell};
 use super::cells::leaf::traits::LeafCells as TraitLeafCells;
 use crate::tree::node::traits::Node as TNode;
@@ -5,9 +7,11 @@ use self::traits::Leaf as TLeaf;
 
 pub mod traits 
 {
+    use serde::{de::DeserializeOwned, Serialize};
+
     use crate::tree::node::traits::Node as TNode;
 
-    pub trait Leaf
+    pub trait Leaf : Serialize + DeserializeOwned
     {
         type Node: TNode;
 
@@ -32,6 +36,7 @@ pub mod traits
     }   
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Leaf< Node>
 where Node: TNode
 {
@@ -60,7 +65,7 @@ where Node: TNode
     }
 }
 
-impl< Node> TLeaf for Leaf< Node>
+impl<Node> TLeaf for Leaf< Node>
 where Node: TNode {
     type Node = Node;
 

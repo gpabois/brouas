@@ -1,4 +1,7 @@
+use serde::{Serialize, Deserialize};
+
 use self::traits::BranchCells as TraitBranchCells;
+
 use crate::tree::node::traits::Node as TNode;
 use crate::tree::nodes::traits::Nodes as TNodes;
 
@@ -34,6 +37,7 @@ pub mod traits {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct BranchCells< Node>
 where Node: TNode
 {

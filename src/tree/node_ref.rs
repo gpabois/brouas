@@ -1,4 +1,6 @@
-use std::{cell::{RefCell}, ops::Deref, rc::{Rc}, borrow::ToOwned};
+use std::{cell::{RefCell}, ops::Deref, rc::{Rc, Weak}, borrow::ToOwned};
+use serde::{Serialize, de::DeserializeOwned, Deserialize};
+
 use crate::{tree::node::traits::Node as TNode, arena::ArenaId};
 
 use super::{nodes::traits::Nodes as TNodes, result::TreeResult};
@@ -97,6 +99,27 @@ impl<'a, Node> From<&'a Node> for RefNode<'a, Node>
 #[derive(Default)]
 pub struct WeakNode<Node>(Rc<RefCell<CoreWeakNode<Node>>>) where Node: TNode;
 
+impl<Node> Serialize for WeakNode<Node>
+where Node: TNode
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        let node_id = self.as_node_id().expect("cannot serialize weak node while referring to arena id");
+        serializer.serialize_bytes(&node_id.into())
+    }
+}
+
+impl<'de, Node> Deserialize<'de> for WeakNode<Node>
+where Node: TNode
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de> {
+        Self(Rc::new(RefCell::new(CoreWeakNode::from(arena_id))))
+    }
+}
+
 impl< Node> std::fmt::Display for WeakNode< Node>
 where Node: TNode
 {
@@ -165,8 +188,16 @@ where Node: TNode
         }
     }
 
-    pub fn load(&self, arena_id: ArenaId) {
+    /// Notify the weak node, that the underlying node content has been loaded onto an arena.
+    pub fn load(&self, arena_id: ArenaId) 
+    {
         *self.0.borrow_mut() = CoreWeakNode::ArenaId(arena_id);
+    }
+
+    pub fn unload<Nodes: TNodes<Node=Node>>(&self, nodes: &Nodes)
+    {
+        let hash = self.upgrade(nodes).get_hash().unwrap();
+        *self.0.borrow_mut() = CoreWeakNode::Id(hash)
     }
 
     pub fn as_arena_id(&self) -> Option<ArenaId>
