@@ -1,132 +1,140 @@
-use std::{io::{Read, BufReader, Write, BufWriter}, alloc::{Layout, alloc_zeroed, dealloc}, mem::size_of, collections::HashMap, ops::Add};
+use std::{io::{Read, BufReader, Write, BufWriter, Cursor}, alloc::{Layout, alloc_zeroed, dealloc}, mem::size_of, collections::HashMap, ops::Add};
 
-#[derive(Hash, PartialEq, Eq, Copy, Clone)]
-pub struct PageId(u64);
+use self::{page_header::PageHeader, page_id::PageId, btree_page::page_header::BPTreeHeader, page_type::PageType};
 
-impl Add<u64> for PageId
+pub mod page_id;
+pub mod page_type;
+pub mod page_header;
+pub mod page_nonce;
+pub mod btree_page;
+
+pub enum PagerError
 {
-    type Output = PageId;
+    IOError(std::io::Error),
+    WrongPageType{expecting: PageType, got: PageType}
+}
 
-    fn add(self, rhs: u64) -> Self::Output {
-        PageId(self.0 + rhs)
+impl From<std::io::Error> for PagerError {
+    fn from(err: std::io::Error) -> Self {
+        Self::IOError(err)
     }
 }
 
-pub enum PageType
-{
-    Collection,
-    BTree,
-    Overflow
-}
+pub type PagerResult<T> = std::result::Result<T, PagerError>;
 
-impl Into<u8> for &PageType
+pub struct Page
 {
-    fn into(self) -> u8 {
-        match self {
-            PageType::Collection => 0,
-            PageType::BTree => 1,
-            PageType::Overflow => 2
-        }
-    }
-}
-impl From<u8> for PageType
-{
-    fn from(value: u8) -> Self {
-        match value {
-            0 => PageType::Collection,
-            1 => PageType::BTree,
-            2 => PageType::Overflow,
-            _ => panic!("unknown type of page")
-        }
-    }
-}
-
-/// Header of page
-/// Size: 88 bytes
-pub struct PageHeader
-{
-    /// Number of the page
-    id:         PageId,
-    /// Unique number, in case of conflicted pages
-    nonce:      u16,
-    /// Type of page, 1 = Collection Tree, 0 = B+ Tree, 1 = Overflow page
-    page_type:  PageType
-}
-
-pub enum TreeNodeType
-{
-    Leaf,
-    Branch
-}
-
-impl Into<u8> for &TreeNodeType
-{
-    fn into(self) -> u8 {
-        match self {
-            TreeNodeType::Branch => 0,
-            TreeNodeType::Leaf => 1
-        }
-    }
-}
-
-impl From<u8> for TreeNodeType
-{
-    fn from(value: u8) -> Self {
-        match value {
-            0 => TreeNodeType::Branch,
-            1 => TreeNodeType::Leaf,
-            _ => panic!("unknown type of b+ tree node")
-        }
-    }
-}
-
-
-pub struct TreePageHeader
-{
-    /// Type of node: 1 = Leaf, 0 = Branch
-    node_type: TreeNodeType,
-    /// Number of cells
-    cell_number: u8
-}
-
-/// A tree branch cell
-/// Size: 128 bytes per cell
-pub struct TreeBranchCell
-{
-    /// Pointer to the left child
-    left_child: u64,
-    /// The key
-    element_id: u64,
-}
-
-/// A tree leaf cell
-/// Header: 256 bytes per cell
-/// Payload: Page size - 256 - Page header size
-/// If > payload: throw the remaining into overflow pages
-pub struct TreeLeafCell
-{
-    /// The element index
-    element_id: u64,
-    /// The total size, including overflow
-    size: u64,
-    /// The portion stored on the current page
-    initial_size:   u64,
-    ///Pointer to the overflow page
-    overflow: PageId
-}
-
-/// Header of an overflow page
-/// Size: 64 bytes
-pub struct OverflowHeader
-{
-    /// 0 : No overflow, else the next overflow page
-    next: u64
+    /// Deserialized page header
+    header: PageHeader,
+    /// Base offset of the page (including raw header data)
+    base: u64,
 }
 
 pub struct PagerHeader
 {
-    page_size: u64,
+    version:    u64,
+    page_size:  u64,
     page_count: u64
+}
+
+
+pub struct UnsafePage(Layout, *mut u8);
+
+impl UnsafePage
+{
+    pub fn alloc(page_size: u64) -> Self {
+        let layout = std::alloc::Layout::from_size_align(page_size as usize, size_of::<u8>()).unwrap();
+        unsafe {
+            UnsafePage(layout, std::alloc::alloc_zeroed(layout))
+        }
+    }
+
+    unsafe fn get_mut_raw(&self) -> &mut [u8]
+    {
+        std::slice::from_raw_parts_mut(self.1, self.0.size())
+    }
+
+    fn get_buf_read(&self) -> BufReader<Cursor<&mut [u8]>>
+    {
+        unsafe {
+            BufReader::new(Cursor::new(self.get_mut_raw()))
+        }
+    }
+
+    pub fn assert_type(&self, expecting_page_type: &PageType) -> PagerResult<()> {
+        let got_page_type = PageHeader::seek_page_type(&mut self.get_buf_read()).map_err(PagerError::from)?;
+        if *expecting_page_type != got_page_type {
+            return Err(PagerError::WrongPageType { expecting: *expecting_page_type, got: got_page_type })
+        }
+
+        Ok(())
+    }
+    
+    /// Write the btree node header, if the page is a BTree Node
+    pub fn write_btree_node_header(&self, header: BPTreeHeader) -> std::result::Result<(), PagerError>
+    {
+        unsafe {
+            let buffer = std::slice::from_raw_parts_mut(self.1, self.0.size());
+            let mut buffer = BufWriter::new(Cursor::new(buffer));
+            self.assert_type(&PageType::BTree)?;
+            
+            BPTreeHeader::seek(&mut buffer).map_err(PagerError::from)?;
+            //header.write_to_buffer(&mut buffer).map_err(PagerError::from)?;
+            Ok(())
+        }
+    }
+    /// Write the page header
+    pub fn write_page_header(&self, header: PageHeader) -> PagerResult<usize>
+    {
+        unsafe {
+            let buffer = std::slice::from_raw_parts_mut(self.1, self.0.size());
+            let mut buffer = BufWriter::new(Cursor::new(buffer));
+            header.write_to_buffer(&mut buffer).map_err(PagerError::from)
+        }
+    }
+}
+
+impl Drop for UnsafePage {
+    fn drop(&mut self) {
+        unsafe {
+            std::alloc::dealloc(self.1, self.0);
+        }
+    }
+}
+
+pub struct PageBuffer {
+    page_size: u64,
+    index: HashMap<PageId, UnsafePage>,
+}
+
+impl PageBuffer
+{
+    pub fn new(page_size: u64, capacity: u64) -> Self
+    {
+        Self {
+            page_size: page_size,
+            index: Default::default()
+        }
+    }
+
+    pub unsafe fn alloc_page_space_unchecked(&mut self, page_id: &PageId) -> &UnsafePage
+    {
+        match self.get_page_unchecked(page_id) {
+            None => {
+                let page = UnsafePage::alloc(self.page_size);
+                self.index.insert(page_id.clone(), page);
+                self.index.get(page_id).unwrap()
+            },
+            Some(page) => page
+        }
+        
+    }
+
+    pub unsafe fn get_page_unchecked(&self, page_id: &PageId) -> Option<&UnsafePage>
+    {
+        self.index.get(page_id)
+    }
+
 }
 
 pub struct Pager

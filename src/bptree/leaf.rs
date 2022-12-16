@@ -4,7 +4,4 @@ pub struct LeafCell<Element>
     element: Element
 }
 
-pub struct Leaf
-{
-    cells: Vec<LeafCell<Element>>
-}
+pub struct Leaf(Vec<LeafCell<Element>>);
