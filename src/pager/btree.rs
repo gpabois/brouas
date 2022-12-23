@@ -8,27 +8,10 @@ pub mod branch;
 pub mod leaf;
 
 pub type BPTreeNodeCellCapacity = u8;
-pub struct BPTreeNodeOffset(u64);
-pub struct BPTreeNodeHeaderOffset(u64);
-pub struct BPTreeNodeBodyOffset(u64);
 
-const BP_TREE_OFFSET: BPTreeNodeOffset = BPTreeNodeOffset(PAGE_BODY_OFFSET.const_into());
-const BP_TREE_HEADER_OFFSET: BPTreeNodeHeaderOffset = BPTreeNodeHeaderOffset(BP_TREE_OFFSET.0);
-const BP_TREE_BODY_OFFSET: BPTreeNodeBodyOffset = BPTreeNodeBodyOffset(BP_TREE_HEADER_OFFSET.0);
-
-impl Into<PageOffset> for BPTreeNodeHeaderOffset {
-    fn into(self) -> PageOffset {
-        unsafe {
-            PageOffset::new(self.0)
-        }
-    }
-}
-
-impl BPTreeNodeBodyOffset {
-    pub const fn const_into(self) -> u64 {
-        self.0
-    }
-}
+const BP_TREE_OFFSET: PageOffset = PAGE_BODY_OFFSET;
+const BP_TREE_HEADER_OFFSET: PageOffset = BP_TREE_OFFSET;
+const BP_TREE_BODY_OFFSET: PageOffset = BP_TREE_HEADER_OFFSET;
 
 pub struct BPTreeNode();
 

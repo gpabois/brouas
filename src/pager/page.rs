@@ -2,7 +2,7 @@ use std::{alloc::Layout, mem::size_of, io::{SeekFrom, BufWriter, Cursor, BufRead
 
 use crate::io::traits::{InStream, OutStream};
 
-use super::{PagerResult, header::PageHeader, PagerError, offset::RawPageOffset};
+use super::{PagerResult, header::PageHeader, PagerError, offset::PageOffset};
 
 pub type PageSize = u64;
 
@@ -60,19 +60,19 @@ impl Page
         unsafe 
         {
             let mut page = Self::alloc(page_size);
-            page.write(&header, &0)?;
+            page.write(&header, &0u64)?;
             Ok(page)
         }
     }
 
-    pub unsafe fn read<D: InStream>(&self, to: &mut D, raw_offset: &RawPageOffset) -> PagerResult<()> 
+    pub unsafe fn read<D: InStream>(&self, to: &mut D, raw_offset: &PageOffset) -> PagerResult<()> 
     {
         let mut reader = self.get_buf_read();
         reader.seek(SeekFrom::Start(*raw_offset))?;
         to.read_from_stream(&mut reader).map_err(PagerError::from)
     }
 
-    pub unsafe fn write<D: OutStream>(&mut self, data: &D, raw_offset: &RawPageOffset) -> PagerResult<usize> 
+    pub unsafe fn write<D: OutStream>(&mut self, data: &D, raw_offset: &PageOffset) -> PagerResult<usize> 
     {
         self.modified = true;
         let mut writer = self.get_buf_write();
@@ -80,7 +80,7 @@ impl Page
         data.write_to_stream(&mut writer).map_err(PagerError::from)
     }
 
-    pub unsafe fn write_all<D: OutStream>(&mut self, data: &D, raw_offset: &RawPageOffset) -> PagerResult<()> 
+    pub unsafe fn write_all<D: OutStream>(&mut self, data: &D, raw_offset: &PageOffset) -> PagerResult<()> 
     {
         let mut writer = self.get_buf_write();
         writer.seek(SeekFrom::Start(*raw_offset))?;

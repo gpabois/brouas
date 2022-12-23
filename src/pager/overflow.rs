@@ -5,8 +5,8 @@ use crate::io::traits::{OutStream, InStream};
 
 use super::page::{PageSize};
 use super::offset::PAGE_BODY_OFFSET;
-use super::{id::PageId, Pager, offset::PageOffset, page_type::PageType, PagerResult};
-use super::traits::{Pager as TraitPager, PagerCommandExecutor};
+use super::{id::PageId, offset::PageOffset, page_type::PageType, PagerResult};
+use super::traits::{Pager as TraitPager};
 
 /// Header of an overflow page
 #[derive(Default)]
@@ -42,58 +42,18 @@ impl OverflowHeader
     pub const fn size_of() -> u64 { PageId::size_of() + 8 }
 }
 
-pub const OVERFLOW_OFFSET: OverflowOffset = OverflowOffset(PAGE_BODY_OFFSET.0);
-pub const OVERFLOW_HEADER_OFFSET: OverflowHeaderOffset = OverflowHeaderOffset(OVERFLOW_OFFSET.0);
-pub const OVERFLOW_BODY_OFFSET: OverflowBodyOffset = OverflowBodyOffset(OVERFLOW_HEADER_OFFSET.0 + OverflowHeader::size_of());
+pub const OVERFLOW_HEADER_SIZE: u64 = OverflowHeader::size_of();
+pub const OVERFLOW_OFFSET: PageOffset = PAGE_BODY_OFFSET;
+pub const OVERFLOW_HEADER_OFFSET: PageOffset = OVERFLOW_OFFSET;
+pub const OVERFLOW_NEXT_FIELD_OFFSET: PageOffset = OVERFLOW_HEADER_OFFSET;
+pub const OVERFLOW_BODY_OFFSET: PageOffset = OVERFLOW_HEADER_OFFSET + OVERFLOW_HEADER_SIZE;
 
-pub struct OverflowOffset(u64);
-pub struct OverflowHeaderOffset(u64);
-
-impl OverflowHeaderOffset 
-{
-    pub fn next_field(&self) -> PageOffset {
-        unsafe {
-            PageOffset::new(self.0)
-        }
-    }
-}
-
-impl Into<PageOffset> for OverflowHeaderOffset {
-    fn into(self) -> PageOffset {
-        unsafe {
-            PageOffset::new(self.0)
-        }
-    }
-}
-
-#[derive(Copy, Clone)]
-pub struct OverflowBodyOffset(u64);
-
-impl Into<PageOffset> for OverflowBodyOffset {
-    fn into(self) -> PageOffset {
-        unsafe {
-            PageOffset::new(self.0)
-        }
-    }
-}
-
-impl Into<u64> for OverflowBodyOffset {
-    fn into(self) -> u64 {
-        self.0
-    }
-}
-
-impl OverflowBodyOffset 
-{
-    pub const fn const_into(&self) -> u64 {self.0}
-
-    pub fn max_body_size(&self, page_size: PageSize) -> u64 
+pub fn max_body_size(page_size: PageSize) -> u64 {
+    if OVERFLOW_BODY_OFFSET > page_size 
     {
-        if self.0 > page_size {
-            0
-        } else {
-            page_size - self.0
-        }
+        0
+    } else {
+        page_size - OVERFLOW_BODY_OFFSET
     }
 }
 
@@ -161,28 +121,94 @@ where P: TraitPager
     }
 }
 
-impl PagerCommandExecutor for Overflow 
-{
-    type Result =  ();
-
-    // Execute all overflow writings scheduled.
-    fn execute<P: TraitPager>(&mut self, pager: &mut P) -> PagerResult<Self::Result> 
-    {
-        while let Some(cmd) = self.commands.pop() {
-            self.execute_command(cmd, pager)?;
-        }
-
-        Ok(())
-    }
-}
-
 impl Overflow
 {
     // Write overflowed data into dedicated pages
-    pub fn write(&mut self, cmd: OverflowCommand) 
+    pub fn write<P: TraitPager>(pager: &mut P, data: &mut DataBuffer, base: Option<PageId>) -> PagerResult<Option<PageId>>
     {
-        self.commands.push(cmd)
+        let mut prev: Option<PageId> = None;
+        let mut head: Option<PageId> = None;
+        let mut target: Option<PageId> = base;
+
+        while let Some(overflow_page_id) = Self::write_oveflow(pager, data, target, prev)?
+        {
+            let header = Self::read_header(pager, &overflow_page_id)?;
+            target = header.next;
+
+            if head.is_none() {
+                head = Some(overflow_page_id);
+            }
+
+            prev = Some(overflow_page_id);
+        }
+
+        Ok(head)
     }
+    
+    fn write_oveflow<P: TraitPager>(pager: &mut P, data: &mut DataBuffer, target_page_id: Option<PageId>, prev_page_id: Option<PageId>) -> PagerResult<Option<PageId>> 
+    {
+        if data.is_empty() 
+        {
+            return Ok(None);
+        }
+
+        // Retrieve the overflow page's id, or create a new one if not set.
+        let target_page_id = match target_page_id 
+        {
+            Some(page_id) => {
+                let page_id = pager.open_page(&page_id)?;
+                // TODO: Assert page type for safety.
+                page_id
+            },
+            None => Self::new_overflow_page(pager)?
+        };
+
+        // Assert this is indeed an overflow page.
+        pager.assert_page_type(&target_page_id, &PageType::Overflow)?;
+
+        if let Some(prev_page_id) = prev_page_id {
+            let mut prev_header = Self::read_header(pager, &prev_page_id)?;
+            prev_header.next = Some(target_page_id);
+            
+            unsafe {
+                Self::write_header_unchecked(pager, &prev_header, &prev_page_id)?;
+            }
+        }
+
+        unsafe 
+        {
+            // Get the overflow header.
+            let mut header = pager.read_and_instantiate_from_page::<OverflowHeader, _>(&target_page_id, OVERFLOW_HEADER_OFFSET)?;
+            let max_overflow_size = max_body_size(pager.get_page_size());
+            
+            // Store the data chunk in the page up to its maximum available capacity.
+            let chunk = data.pop_front(max_overflow_size);
+            pager.write_all_to_page(&target_page_id, &chunk, OVERFLOW_BODY_OFFSET)?;
+            
+            // Write the quantity of bytes stored in the page.
+            header.in_page_size = chunk.len() as u64;
+            pager.write_all_to_page(&target_page_id, &header, OVERFLOW_HEADER_OFFSET)?;
+
+            // Remove the next pointer reference, if any, and drop the tail of the linked list.
+            if header.next.is_some() && data.is_empty()
+            {    
+                Self::drop_tail(pager, &header.next.unwrap())?;
+                header.next = None;
+                pager.write_all_to_page(&target_page_id, &header, OVERFLOW_HEADER_OFFSET)?;
+            }
+        }
+
+        Ok(Some(target_page_id))
+
+    }
+
+    /// Read the overflow header, does not check for page type.
+    /// This method does not check the page type.
+    unsafe fn write_header_unchecked<P: TraitPager>(pager: &mut P, header: &OverflowHeader, page_id: &PageId) -> PagerResult<()> 
+    {
+        pager.write_all_to_page(page_id, header, OVERFLOW_HEADER_OFFSET)
+    }
+
 
     /// Drop all the rest of the pages from the overflow chain starting from from_page_id.
     /// This method opens the page, and drops it.
@@ -228,7 +254,7 @@ impl Overflow
     {
         let mut cursor_page_id = *page_id;
 
-        while let Some(next_page_id) = Self::read_page(pager, &cursor_page_id, acc)? 
+        while let Some(next_page_id) = Self::read_overflow(pager, &cursor_page_id, acc)? 
         {
             cursor_page_id = next_page_id;
         };
@@ -236,7 +262,7 @@ impl Overflow
         Ok(())
     }
 
-    pub unsafe fn read_page<P: TraitPager>(pager: &mut P, page_id: &PageId, acc: &mut DataBuffer) -> PagerResult<Option<PageId>> {
+    pub unsafe fn read_overflow<P: TraitPager>(pager: &mut P, page_id: &PageId, acc: &mut DataBuffer) -> PagerResult<Option<PageId>> {
         pager.open_page(page_id)?;
 
         let header = Self::read_header_unchecked(pager, page_id)?;
@@ -283,79 +309,14 @@ impl Overflow
         }
         Ok(page_id)
     }
-
-    fn execute_command<P: TraitPager>(&mut self, mut cmd: OverflowCommand, pager: &mut P) -> PagerResult<()>
-    {
-        if cmd.data.is_empty() {
-            return Ok(());
-        }
-
-        // Retrieve the overflow page's id, or create a new one if not set.
-        let target_page_id = match cmd.overflow_page_id {
-            Some(page_id) => {
-                let page_id = pager.open_page(&page_id)?;
-                // TODO: Assert page type for safety.
-                page_id
-            },
-            None => Self::new_overflow_page(pager)?
-        };
-
-        // Assert this is indeed an overflow page.
-        pager.assert_page_type(&target_page_id, &PageType::Overflow)?;
-
-        unsafe 
-        {
-            // Get the overflow header.
-            let mut header = pager.read_and_instantiate_from_page::<OverflowHeader, _>(&target_page_id, OVERFLOW_HEADER_OFFSET)?;
-            let max_overflow_size = OVERFLOW_BODY_OFFSET.max_body_size(self.page_size);
-            
-            // Store the data chunk in the page up to its maximum available capacity.
-            let chunk = cmd.data.pop_front(max_overflow_size);
-            pager.write_all_to_page(&target_page_id, &chunk, OVERFLOW_BODY_OFFSET)?;
-            
-            // Write the quantity of bytes stored in the page.
-            header.in_page_size = chunk.len() as u64;
-            pager.write_all_to_page(&target_page_id, &header, OVERFLOW_HEADER_OFFSET)?;
-
-            // We have still some overflowed bits to manage.
-            if !cmd.data.is_empty() 
-            {
-                self.write(OverflowCommand::new(
-                    target_page_id, 
-                    OVERFLOW_HEADER_OFFSET.next_field(), 
-                    cmd.data, 
-                    header.next
-                ))
-            } 
-            // Remove the next pointer reference, if any, and drop the tail of the linked list.
-            else if header.next.is_some() 
-            {    
-                Self::drop_tail(pager, &header.next.unwrap())?;
-                header.next = None;
-                pager.write_all_to_page(&target_page_id, &header, OVERFLOW_HEADER_OFFSET)?;
-            }
-        }
-
-        unsafe {
-            // Write back the target page id to the source page
-            pager.write_to_page(&cmd.src_page, &target_page_id, cmd.src_offset)?;
-        }
-
-        Ok(())
-    }
 }
 
 #[cfg(test)]
 mod tests 
 {
     use crate::io::{DataBuffer};
-    use crate::pager::id::PageId;
-    use crate::pager::offset::PAGE_BODY_OFFSET;
-    use crate::pager::page_type::PageType;
-    use crate::pager::traits::PagerCommandExecutor;
-    use crate::pager::{PagerResult, TraitPager};
-    use crate::pager::overflow::{Overflow, OverflowCommand};
-    use crate::pager::Pager;
+    use crate::pager::overflow::{Overflow};
+    use crate::pager::{Pager, PagerResult};
     
     #[test]
     /// Test the data overflow mechanism
@@ -364,32 +325,15 @@ mod tests
         // Try with 1 MB of overflow data, into 4 kB pages.
         let data_size = 1_000_000usize;
         let mut pager = Pager::new(DataBuffer::new(), 4000);
-        let mut overflow = Overflow::from(&pager);
-
-        let src_page_id = pager.new_page(PageType::Raw)?;
         let data = crate::fixtures::random_raw_data(data_size);
 
         // Schedule an overflow writing
-        overflow.write(OverflowCommand::new(
-            src_page_id, 
-            PAGE_BODY_OFFSET.into(), 
-            data.clone(), 
-            None
-        ));
+        let page_id = Overflow::write(&mut pager, &mut data.clone(), None)?.unwrap();
 
-        // Execute the overflow pending commands.
-        overflow.execute(&mut pager)?;
-
-        unsafe {
-            // Check the source's overflow pointer has been correctly set.
-            let target_page_id = pager.read_and_instantiate_from_page::<PageId, _>(&src_page_id, PAGE_BODY_OFFSET)?;
-            assert_eq!(target_page_id, PageId::from(2));
-        }
-        
         // Retrieve the whole stored data.
         // In this example, the data must have been splitted into two overflow pages. 
         let mut stored_data = DataBuffer::with_size(data_size);
-        Overflow::read(&mut pager, &mut stored_data, &PageId::from(2), None)?;
+        Overflow::read(&mut pager, &mut stored_data, &page_id, None)?;
         assert_eq!(stored_data, data);
 
         Ok(())

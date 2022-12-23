@@ -101,7 +101,7 @@ impl PagerHeader {
     {
         unsafe 
         {
-            pager.write_all_to_page(&PAGER_PAGE_INDEX, self, 0)
+            pager.write_all_to_page(&PAGER_PAGE_INDEX, self, 0u64)
         }
     }
 
@@ -109,7 +109,7 @@ impl PagerHeader {
     {
         unsafe 
         {
-            pager.read_and_instantiate_from_page::<Self, _>(&PAGER_PAGE_INDEX, 0)
+            pager.read_and_instantiate_from_page::<Self, _>(&PAGER_PAGE_INDEX, 0u64)
         }
     }
 }
@@ -199,23 +199,20 @@ impl<Stream: PagerStream> TraitPager for Pager<Stream>
 
     unsafe fn write_to_page<D: OutStream, PO: Into<PageOffset>>(&mut self, page_id: &PageId, data: &D, offset: PO) -> PagerResult<usize> 
     {
-        let page_size = self.get_page_size();
         let page = self.buffer.borrow_mut_page(page_id).ok_or(PagerError::PageNotOpened(*page_id))?;
-        page.write(data, &offset.into().raw(&page_size)?)
+        page.write(data, &offset.into())
     }
 
     unsafe fn write_all_to_page<D: OutStream, PO: Into<PageOffset>>(&mut self, page_id: &PageId, data: &D, offset: PO) -> PagerResult<()> 
     {
-        let page_size = self.get_page_size();
         let page = self.buffer.borrow_mut_page(page_id).ok_or(PagerError::PageNotOpened(*page_id))?;
-        page.write_all(data, &offset.into().raw(&page_size)?)
+        page.write_all(data, &offset.into())
     }
 
     /// Read data from page, unsafe because it can read corrupted data if not done correctly.
     unsafe fn read_from_page<D: InStream, PO: Into<PageOffset>>(&self, to: &mut D, page_id: &PageId, offset: PO) -> PagerResult<()> {
-        let page_size = self.get_page_size();
         let page = self.buffer.borrow_page(page_id).ok_or(PagerError::PageNotOpened(*page_id))?;
-        page.read::<D>(to, &offset.into().raw(&page_size)?)
+        page.read::<D>(to, &offset.into())
     }
 
     unsafe fn read_and_instantiate_from_page<D: InStream + Default, PO: Into<PageOffset>>(&self, page_id: &PageId, offset: PO) -> PagerResult<D>
