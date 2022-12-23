@@ -1,27 +1,48 @@
 use std::io::{BufRead, Write};
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+use crate::io::{DataStream, traits::{OutStream, InStream}};
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum PageType
 {
+    Unitialised,
+    Free, 
+    Root,
     Collection,
     BTree,
-    Overflow
+    Overflow,
+    Raw,
+    Unknown
+}
+
+impl Default for PageType {
+    fn default() -> Self {
+        Self::Unitialised
+    }
+}
+
+impl OutStream for PageType 
+{
+    fn write_to_stream<W: Write>(&self, writer: &mut W) -> std::io::Result<usize> {
+        DataStream::<u8>::write(writer, self.into())
+    }
+
+    fn write_all_to_stream<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        DataStream::<u8>::write_all(writer, self.into())
+    }
+}
+
+impl InStream for PageType 
+{
+    fn read_from_stream<R: BufRead>(&mut self, reader: &mut R) -> std::io::Result<()> {
+        *self = Self::from(DataStream::<u8>::read(reader)?);
+        Ok(())
+    }
 }
 
 impl PageType
 {
-    pub fn raw_size_of() -> u64 { 1 }
-
-    pub fn write_to_buffer<W: Write>(&self, b: &mut std::io::BufWriter<W>) -> std::io::Result<usize>
-    {
-        b.write(&[self.into()])
-    }
-
-    pub fn read_from_buffer<B: BufRead>(buffer: &mut B) -> std::io::Result<Self> {
-        let mut id: [u8; 1] = [0];
-        buffer.read_exact(&mut id)?;
-        Ok(Self::from(u8::from_ne_bytes(id)))
-    }
+    pub const fn size_of() -> u64 { 1 }
 }
 
 
@@ -29,9 +50,14 @@ impl Into<u8> for &PageType
 {
     fn into(self) -> u8 {
         match self {
-            PageType::Collection => 0,
-            PageType::BTree => 1,
-            PageType::Overflow => 2
+            PageType::Unitialised => 0,
+            PageType::Free => 1, 
+            PageType::Root => 2,
+            PageType::Collection => 3,
+            PageType::BTree => 4,
+            PageType::Overflow => 5,
+            PageType::Raw => 6,
+            PageType::Unknown => 255
         }
     }
 }
@@ -39,10 +65,14 @@ impl From<u8> for PageType
 {
     fn from(value: u8) -> Self {
         match value {
-            0 => PageType::Collection,
-            1 => PageType::BTree,
-            2 => PageType::Overflow,
-            _ => panic!("unknown type of page")
+            0 => PageType::Unitialised,
+            1 => PageType::Free,
+            2 => PageType::Root,
+            3 => PageType::Collection,
+            4 => PageType::BTree,
+            5 => PageType::Overflow,
+            6 => PageType::Raw,
+            _ => PageType::Unknown
         }
     }
 }

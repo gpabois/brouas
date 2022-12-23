@@ -15,6 +15,7 @@ dependencies = [
 name = "brouas"
 version = "0.1.0"
 dependencies = [
+ "const-utils",
  "elsa",
  "hex",
  "rand",
@@ -27,6 +28,12 @@ name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
+
+[[package]]
+name = "const-utils"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "004dad2229d2902fbb09ff8e9c93a9424e36e3b094ff8231a5e184d1eb622856"
 
 [[package]]
 name = "cpufeatures"

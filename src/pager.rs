@@ -1,17 +1,32 @@
-use std::{io::{Read, BufReader, Write, BufWriter, Cursor}, alloc::{Layout, alloc_zeroed, dealloc}, mem::size_of, collections::HashMap, ops::Add};
 
-use self::{page_header::PageHeader, page_id::PageId, btree_page::page_header::BPTreeHeader, page_type::PageType};
+use std::cmp::max;
 
-pub mod page_id;
+use crate::io::{traits::{OutStream, InStream}, DataStream};
+
+use self::{header::{PageHeader, PAGE_HEADER_SIZE}, id::PageId, page_type::PageType, offset::{PageOffset}, page::{PageSize}, buffer::PagerBuffer, allocator::Allocator, traits::PagerStream};
+pub use self::traits::Pager as TraitPager;
+
+pub mod buffer;
+pub mod page;
+pub mod id;
 pub mod page_type;
-pub mod page_header;
-pub mod page_nonce;
-pub mod btree_page;
+pub mod header;
+pub mod nonce;
+pub mod offset;
+pub mod overflow; 
+pub mod btree;
+pub mod allocator;
+pub mod traits;
+pub mod stream; 
 
+#[derive(Debug)]
 pub enum PagerError
 {
     IOError(std::io::Error),
-    WrongPageType{expecting: PageType, got: PageType}
+    WrongPageType{expecting: PageType, got: PageType},
+    PageNotOpened(PageId),
+    PageOverflow,
+    PageFull(PageId)
 }
 
 impl From<std::io::Error> for PagerError {
@@ -22,122 +37,279 @@ impl From<std::io::Error> for PagerError {
 
 pub type PagerResult<T> = std::result::Result<T, PagerError>;
 
-pub struct Page
-{
-    /// Deserialized page header
-    header: PageHeader,
-    /// Base offset of the page (including raw header data)
-    base: u64,
-}
-
+#[derive(Default)]
 pub struct PagerHeader
 {
-    version:    u64,
-    page_size:  u64,
-    page_count: u64
+    pub version:    u64,
+    /// Size of a page
+    pub page_size:  u64,
+    /// Number of pages 
+    pub page_count: u64,
+    /// Pointer to the first free page that can be retrieved.
+    pub free_head:  Option<PageId>
 }
 
+impl PagerHeader {
+    fn new(page_size: PageSize) -> Self {
+        Self { 
+            version: 1, 
+            page_size: page_size, 
+            page_count: 1, 
+            free_head: Default::default() 
+        }
+    }
 
-pub struct UnsafePage(Layout, *mut u8);
+    pub const fn size_of() -> u64 {
+        4 * 8
+    }
+}
 
-impl UnsafePage
+const PAGER_HEADER_SIZE: u64 = PagerHeader::size_of();
+
+impl OutStream for PagerHeader {
+    fn write_to_stream<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<usize> {
+        Ok( 
+            DataStream::<u64>::write(writer, self.version)? +
+            DataStream::<u64>::write(writer, self.page_size)? +
+            DataStream::<u64>::write(writer, self.page_count)? +
+            self.free_head.write_to_stream(writer)? 
+        )
+    }
+
+    fn write_all_to_stream<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        DataStream::<u64>::write_all(writer, self.version)?;
+        DataStream::<u64>::write_all(writer, self.page_size)?;
+        DataStream::<u64>::write_all(writer, self.page_count)?;
+        self.free_head.write_all_to_stream(writer)
+    }
+}
+
+impl InStream for PagerHeader {
+    fn read_from_stream<R: std::io::BufRead>(&mut self, read: &mut R) -> std::io::Result<()> {
+        self.version = DataStream::<u64>::read(read)?;
+        self.page_size = DataStream::<u64>::read(read)?;
+        self.page_count = DataStream::<u64>::read(read)?;
+        self.free_head.read_from_stream(read)?;
+        Ok(())
+    }
+}
+
+const PAGER_PAGE_INDEX: PageId = PageId::new(0);
+
+impl PagerHeader {
+    pub fn set<P: TraitPager>(&self, pager: &mut P) -> PagerResult<()> 
+    {
+        unsafe 
+        {
+            pager.write_all_to_page(&PAGER_PAGE_INDEX, self, 0)
+        }
+    }
+
+    pub fn get<P: TraitPager>(pager: &P) -> PagerResult<Self> 
+    {
+        unsafe 
+        {
+            pager.read_and_instantiate_from_page::<Self, _>(&PAGER_PAGE_INDEX, 0)
+        }
+    }
+}
+
+pub struct Pager<Stream: PagerStream>
 {
-    pub fn alloc(page_size: u64) -> Self {
-        let layout = std::alloc::Layout::from_size_align(page_size as usize, size_of::<u8>()).unwrap();
-        unsafe {
-            UnsafePage(layout, std::alloc::alloc_zeroed(layout))
+    page_size: PageSize,
+    buffer: PagerBuffer,
+    stream: Stream
+}
+
+impl<Stream: PagerStream> TraitPager for Pager<Stream>
+{
+    /// New page
+    fn new_page(&mut self, page_type: PageType) -> PagerResult<PageId> 
+    {
+        let page_id = match Allocator::alloc(self)? {
+            // We have a free page available !
+            Some(free_page_id) => {
+                let mut header = PageHeader::get(&free_page_id, self)?;
+                header.page_type = page_type;
+                header.set(self)?;
+                free_page_id
+            },
+            // No free pages
+            None => {
+                let mut pager_header = PagerHeader::get(self)?;
+
+                let page_id: PageId = pager_header.page_count.into();
+                pager_header.page_count += 1;
+                pager_header.set(self)?;
+        
+                self.alloc_page_space(&page_id);
+        
+                let mut header = PageHeader::new(page_id);
+                header.page_type = page_type;
+                header.set(self)?;
+
+                page_id
+            }
+        };
+
+        Ok(page_id)
+    }
+
+    fn open_page(&mut self, page_id: &PageId) -> PagerResult<PageId> 
+    {
+        // The page is already opened
+        if self.buffer.borrow_mut_page(page_id).is_some() {
+            Ok(*page_id)
+        } else {
+            todo!()
         }
     }
 
-    unsafe fn get_mut_raw(&self) -> &mut [u8]
+    fn close_page(&mut self, page_id: &PageId) -> PagerResult<()> 
     {
-        std::slice::from_raw_parts_mut(self.1, self.0.size())
+        self.buffer.drop_page(page_id);
+        Ok(())
     }
 
-    fn get_buf_read(&self) -> BufReader<Cursor<&mut [u8]>>
+    fn flush_page(&mut self, page_id: &PageId) -> PagerResult<()> 
     {
-        unsafe {
-            BufReader::new(Cursor::new(self.get_mut_raw()))
-        }
+        let page = self.buffer.borrow_mut_page(page_id).ok_or(PagerError::PageNotOpened(*page_id))?;
+        self.stream.write_page(page_id, page).map_err(PagerError::from)?;
+        Ok(())
     }
 
-    pub fn assert_type(&self, expecting_page_type: &PageType) -> PagerResult<()> {
-        let got_page_type = PageHeader::seek_page_type(&mut self.get_buf_read()).map_err(PagerError::from)?;
-        if *expecting_page_type != got_page_type {
-            return Err(PagerError::WrongPageType { expecting: *expecting_page_type, got: got_page_type })
+    fn flush_modified_pages(&mut self) -> PagerResult<()> {
+        todo!()
+    }
+
+    fn drop_page(&mut self, page_id: &PageId) -> PagerResult<()> 
+    {
+        Allocator::free(self, page_id)
+    }
+
+    fn assert_page_type(&self, page_id: &PageId, page_type: &PageType) -> PagerResult<()> where Self: Sized {
+        let header = PageHeader::get::<Self>(page_id, self)?;
+
+        if header.page_type != *page_type {
+            return Err(PagerError::WrongPageType { expecting: *page_type, got: header.page_type });
         }
 
         Ok(())
     }
-    
-    /// Write the btree node header, if the page is a BTree Node
-    pub fn write_btree_node_header(&self, header: BPTreeHeader) -> std::result::Result<(), PagerError>
+
+    unsafe fn write_to_page<D: OutStream, PO: Into<PageOffset>>(&mut self, page_id: &PageId, data: &D, offset: PO) -> PagerResult<usize> 
     {
-        unsafe {
-            let buffer = std::slice::from_raw_parts_mut(self.1, self.0.size());
-            let mut buffer = BufWriter::new(Cursor::new(buffer));
-            self.assert_type(&PageType::BTree)?;
-            
-            BPTreeHeader::seek(&mut buffer).map_err(PagerError::from)?;
-            //header.write_to_buffer(&mut buffer).map_err(PagerError::from)?;
-            Ok(())
-        }
+        let page_size = self.get_page_size();
+        let page = self.buffer.borrow_mut_page(page_id).ok_or(PagerError::PageNotOpened(*page_id))?;
+        page.write(data, &offset.into().raw(&page_size)?)
     }
-    /// Write the page header
-    pub fn write_page_header(&self, header: PageHeader) -> PagerResult<usize>
+
+    unsafe fn write_all_to_page<D: OutStream, PO: Into<PageOffset>>(&mut self, page_id: &PageId, data: &D, offset: PO) -> PagerResult<()> 
     {
-        unsafe {
-            let buffer = std::slice::from_raw_parts_mut(self.1, self.0.size());
-            let mut buffer = BufWriter::new(Cursor::new(buffer));
-            header.write_to_buffer(&mut buffer).map_err(PagerError::from)
-        }
+        let page_size = self.get_page_size();
+        let page = self.buffer.borrow_mut_page(page_id).ok_or(PagerError::PageNotOpened(*page_id))?;
+        page.write_all(data, &offset.into().raw(&page_size)?)
     }
-}
 
-impl Drop for UnsafePage {
-    fn drop(&mut self) {
-        unsafe {
-            std::alloc::dealloc(self.1, self.0);
-        }
+    /// Read data from page, unsafe because it can read corrupted data if not done correctly.
+    unsafe fn read_from_page<D: InStream, PO: Into<PageOffset>>(&self, to: &mut D, page_id: &PageId, offset: PO) -> PagerResult<()> {
+        let page_size = self.get_page_size();
+        let page = self.buffer.borrow_page(page_id).ok_or(PagerError::PageNotOpened(*page_id))?;
+        page.read::<D>(to, &offset.into().raw(&page_size)?)
     }
+
+    unsafe fn read_and_instantiate_from_page<D: InStream + Default, PO: Into<PageOffset>>(&self, page_id: &PageId, offset: PO) -> PagerResult<D>
+    {
+        let mut data: D = Default::default();
+        self.read_from_page(&mut data, page_id, offset)?;
+        Ok(data)
+
+    }
+
+    fn get_page_size(&self) -> page::PageSize 
+    {
+        self.page_size
+    }
+
 }
 
-pub struct PageBuffer {
-    page_size: u64,
-    index: HashMap<PageId, UnsafePage>,
-}
+const MIN_PAGE_SIZE: u64 = const_utils::u64::max(PAGE_HEADER_SIZE, PAGER_HEADER_SIZE);
 
-impl PageBuffer
+impl<Stream: PagerStream> Pager<Stream>
 {
-    pub fn new(page_size: u64, capacity: u64) -> Self
+    /// Create a new pager
+    /// The page size must be above MIN_PAGE_SIZE.
+    pub fn new(stream: Stream, mut page_size: u64) -> Self 
     {
-        Self {
+        page_size = max(MIN_PAGE_SIZE, page_size);
+
+        // page_count = 1 because of the root page.
+        let mut pager = Self {
             page_size: page_size,
-            index: Default::default()
-        }
+            buffer: PagerBuffer::new(page_size),
+            stream: stream
+        };
+
+        // init zero page which is the pager header
+        pager.alloc_page_space(&PageId::new(0));
+        PagerHeader::new(page_size).set(&mut pager).unwrap();
+
+        pager
     }
 
-    pub unsafe fn alloc_page_space_unchecked(&mut self, page_id: &PageId) -> &UnsafePage
+    /// Alloc a page space in the internal buffer
+    fn alloc_page_space(&mut self, page_id: &PageId) 
     {
-        match self.get_page_unchecked(page_id) {
-            None => {
-                let page = UnsafePage::alloc(self.page_size);
-                self.index.insert(page_id.clone(), page);
-                self.index.get(page_id).unwrap()
-            },
-            Some(page) => page
-        }
-        
+        self.buffer.alloc_page(&page_id);
     }
-
-    pub unsafe fn get_page_unchecked(&self, page_id: &PageId) -> Option<&UnsafePage>
-    {
-        self.index.get(page_id)
-    }
-
 }
 
-pub struct Pager
+/// Change a page type
+pub unsafe fn change_page_type<P>(
+    pager: &mut P, 
+    page_id: &PageId, 
+    new_page_type: PageType) -> PagerResult<()> 
+where P: TraitPager
 {
-    header: PagerHeader
+    let mut header = PageHeader::get(page_id, pager)?;
+    header.page_type = new_page_type;
+    header.set(pager)
+}
+
+#[cfg(test)]
+mod tests 
+{
+
+    use crate::{pager::{id::PageId, page_type::PageType, header::PageHeader, nonce::PageNonce}, io::DataBuffer};
+    use crate::pager::traits::Pager as TraitPager;
+
+    use super::{PagerResult, Pager};
+
+    #[test]
+    /// Test the pager.
+    pub fn test_pager() -> PagerResult<()> 
+    {
+        let mut pager = Pager::new(DataBuffer::new(), 1024);
+        let expected_page_id = PageId::from(1);
+
+        assert_eq!(expected_page_id, pager.new_page(PageType::BTree)?); 
+
+        // Check the header
+        let mut header = PageHeader::get(&expected_page_id, &mut pager)?;
+
+        assert_eq!(header.id,           PageId::from(1));
+        assert_ne!(header.nonce,        PageNonce::not_set());
+        assert_eq!(header.page_type,    PageType::BTree);
+
+        // Drop the page, should mark it as free.
+        pager.drop_page(&expected_page_id)?;
+
+        header = PageHeader::get(&PageId::from(1), &mut pager)?;
+        assert_eq!(header.page_type, PageType::Free);
+
+        // Now we create a new page, the pager should be able to recycle the previous dropped page.
+        assert_eq!(expected_page_id, pager.new_page(PageType::Raw)?);
+
+        Ok(())
+    }
 }

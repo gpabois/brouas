@@ -4,3 +4,6 @@ pub mod collection;
 pub mod hash;
 pub mod arena;
 pub mod pager;
+pub mod io;
+
+pub mod fixtures;
