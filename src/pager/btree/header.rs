@@ -2,9 +2,10 @@ use std::io::{Write, BufRead};
 
 use crate::{io::{traits::{OutStream, InStream}, DataStream}};
 
-use super::{node_type::{BPTreeNodeType}, BPTreeNodeCellCapacity};
+use super::{node_type::{BPTreeNodeType}, BPTreeCellCapacity};
 
-pub struct BPTreeHeader
+#[derive(Default)]
+pub struct BPTreeNodeHeader
 {
     /// Type of node: 1 = Leaf, 0 = Branch
     pub node_type: BPTreeNodeType,
@@ -14,7 +15,7 @@ pub struct BPTreeHeader
     pub capacity: u8
 }
 
-impl OutStream for BPTreeHeader {
+impl OutStream for BPTreeNodeHeader {
     fn write_to_stream<W: Write>(&self, writer: &mut W) -> std::io::Result<usize> {
         Ok(
             self.node_type.write_to_stream(writer)? +
@@ -31,7 +32,7 @@ impl OutStream for BPTreeHeader {
     }
 }
 
-impl InStream for BPTreeHeader 
+impl InStream for BPTreeNodeHeader 
 {
     fn read_from_stream<R: BufRead>(&mut self, reader: &mut R) -> std::io::Result<()> {
         self.node_type.read_from_stream(reader)?;
@@ -41,14 +42,14 @@ impl InStream for BPTreeHeader
     }
 }
 
-impl BPTreeHeader
+impl BPTreeNodeHeader
 {
-    pub fn new(node_type: BPTreeNodeType, capacity: impl Into<BPTreeNodeCellCapacity>) -> Self {
+    pub fn new(node_type: BPTreeNodeType, capacity: impl Into<BPTreeCellCapacity>) -> Self {
         Self { node_type: node_type, len: 0, capacity: capacity.into() }
     }
 
-    pub  const fn raw_size_of() -> u64 { 24 }
+    pub  const fn size_of() -> u64 { 24 }
 }
 
-pub const BPTREE_HEADER_SIZE: u64 = BPTreeHeader::raw_size_of();
+pub const BPTREE_HEADER_SIZE: u64 = BPTreeNodeHeader::size_of();
 

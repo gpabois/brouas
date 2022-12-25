@@ -18,6 +18,7 @@ pub mod btree;
 pub mod allocator;
 pub mod traits;
 pub mod stream; 
+pub mod utils;
 
 #[derive(Debug)]
 pub enum PagerError
@@ -26,7 +27,10 @@ pub enum PagerError
     WrongPageType{expecting: PageType, got: PageType},
     PageNotOpened(PageId),
     PageOverflow,
-    PageFull(PageId)
+    PageFull(PageId),
+    //
+    SparseCell,
+    OutOfBoundCell
 }
 
 impl From<std::io::Error> for PagerError {

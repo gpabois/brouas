@@ -2,8 +2,15 @@ use crate::io::{traits::{InStream, OutStream}, DataStream};
 
 pub enum BPTreeNodeType
 {
+    Unitialised,
     Leaf,
     Branch
+}
+
+impl Default for BPTreeNodeType {
+    fn default() -> Self {
+        Self::Unitialised
+    }
 }
 
 impl InStream for BPTreeNodeType 
@@ -28,8 +35,9 @@ impl Into<u8> for &BPTreeNodeType
 {
     fn into(self) -> u8 {
         match self {
-            BPTreeNodeType::Branch => 0,
-            BPTreeNodeType::Leaf => 1
+            BPTreeNodeType::Unitialised => 0,
+            BPTreeNodeType::Branch => 1,
+            BPTreeNodeType::Leaf => 2
         }
     }
 }
@@ -38,8 +46,9 @@ impl From<u8> for BPTreeNodeType
 {
     fn from(value: u8) -> Self {
         match value {
-            0 => BPTreeNodeType::Branch,
-            1 => BPTreeNodeType::Leaf,
+            0 => BPTreeNodeType::Unitialised,
+            1 => BPTreeNodeType::Branch,
+            2 => BPTreeNodeType::Leaf,
             _ => panic!("unknown type of b+ tree node")
         }
     }

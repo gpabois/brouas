@@ -123,7 +123,7 @@ where P: TraitPager
 
 impl Overflow
 {
-    // Write overflowed data into dedicated pages
+    /// Write data into overflow pages.
     pub fn write<P: TraitPager>(pager: &mut P, data: &mut DataBuffer, base: Option<PageId>) -> PagerResult<Option<PageId>>
     {
         let mut prev: Option<PageId> = None;
@@ -262,7 +262,7 @@ impl Overflow
         Ok(())
     }
 
-    pub unsafe fn read_overflow<P: TraitPager>(pager: &mut P, page_id: &PageId, acc: &mut DataBuffer) -> PagerResult<Option<PageId>> {
+    unsafe fn read_overflow<P: TraitPager>(pager: &mut P, page_id: &PageId, acc: &mut DataBuffer) -> PagerResult<Option<PageId>> {
         pager.open_page(page_id)?;
 
         let header = Self::read_header_unchecked(pager, page_id)?;
@@ -320,7 +320,7 @@ mod tests
     
     #[test]
     /// Test the data overflow mechanism
-    pub fn test_pager_overflow_page() -> PagerResult<()> 
+    pub fn test_pager_overflow() -> PagerResult<()> 
     {
         // Try with 1 MB of overflow data, into 4 kB pages.
         let data_size = 1_000_000usize;

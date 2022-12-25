@@ -1,63 +1,16 @@
-use crate::{pager::{id::PageId, PagerResult, overflow::{Overflow}, page::PageSize, offset::PageOffset}, io::{DataBuffer, traits::{OutStream, InStream}, DataStream}};
-use super::{BPTreeNode, node_type::BPTreeNodeType, BPTreeNodeCellCapacity, BP_TREE_BODY_OFFSET};
+use crate::{pager::{id::PageId, PagerResult, overflow::{Overflow}}, io::{DataBuffer, traits::{OutStream, InStream}, DataStream}};
+use super::{BPTreeNode, node_type::BPTreeNodeType, BPTreeCellCapacity, BPTreeNodeOffset, BPTreeCellSize, BPTreeCellId, header::BPTreeNodeHeader, BPTreeCellIndexes};
 use crate::pager::traits::Pager;
 
-pub type BPTreeCellOffset = u64;
-
-const CELL_HEADER_OFFSET: BPTreeCellOffset = 0;
-const CELL_ELEMENT_OFFSET: BPTreeCellOffset = CELL_HEADER_OFFSET + BPTreeLeafCellHeader::size_of();
-
-#[derive(Copy, Clone)]
-pub struct BPTreeLeafCellSize(u64);
-pub type   BPTreeLeafCellIndex = u8;
-
-impl BPTreeLeafCellSize 
-{
-    pub const fn from(page_size: PageSize, capacity: BPTreeNodeCellCapacity) -> Self {
-        Self(Self::raw_cell_size(page_size, capacity))
-    }
-
-    pub fn max_in_page_element_size(&self) -> u64 {
-        let cell_size = self.0;
-        if cell_size >= BPTreeLeafCellHeader::size_of() {return 0;}
-        cell_size - BPTreeLeafCellHeader::size_of()
-    }
-
-    const fn raw_cell_size(page_size: PageSize, capacity: BPTreeNodeCellCapacity) -> u64 {
-        if BP_TREE_BODY_OFFSET >= page_size {return 0;}
-        let body_size = page_size - BP_TREE_BODY_OFFSET;
-        let cell_size = body_size / (capacity as u64);
-        cell_size    
-    }
-}
-
-impl std::ops::Mul<BPTreeLeafCellIndex> for BPTreeLeafCellSize {
-    type Output = BPTreeLeafCellOffset;
-
-    fn mul(self, rhs: BPTreeLeafCellIndex) -> Self::Output {
-        BPTreeLeafCellOffset((rhs as u64) * self.0)
-    }
-}
-
-#[derive(Clone, Copy)]
-/// Offset from the leaf body.
-pub struct BPTreeLeafCellOffset(u64);
-
-impl std::ops::Add<BPTreeCellOffset> for BPTreeLeafCellOffset {
-    type Output = PageOffset;
-
-    fn add(self, rhs: BPTreeCellOffset) -> Self::Output {
-        rhs + self.0
-    }
-}
+const CELL_HEADER_OFFSET: BPTreeNodeOffset = BPTreeNodeOffset(0);
+const CELL_ELEMENT_OFFSET: BPTreeNodeOffset = BPTreeNodeOffset(CELL_HEADER_OFFSET.0 + BPTreeLeafCellHeader::size_of());
 
 /// A tree leaf cell
 /// Header: 256 bytes per cell
 /// Payload: Page size - 256 - Page header size
 /// If > payload: throw the remaining into overflow pages
 #[derive(Default)]
-pub struct BPTreeLeafCellHeader
-{
+pub struct BPTreeLeafCellHeader {
     /// The element index
     pub index: u64,
     /// The total element size, including overflow
@@ -67,7 +20,11 @@ pub struct BPTreeLeafCellHeader
     /// Pointer to the overflow page
     pub overflow: Option<PageId>
 }
-
+impl BPTreeLeafCellHeader {
+    pub const fn size_of() -> u64 {
+        PageId::size_of() + 3 * 8
+    }
+}
 impl OutStream for BPTreeLeafCellHeader {
     fn write_to_stream<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<usize> {
         Ok(
@@ -88,7 +45,6 @@ impl OutStream for BPTreeLeafCellHeader {
         Ok(())
     }
 }
-
 impl InStream for BPTreeLeafCellHeader {
 
     fn read_from_stream<R: std::io::BufRead>(&mut self, reader: &mut R) -> std::io::Result<()> {
@@ -97,12 +53,6 @@ impl InStream for BPTreeLeafCellHeader {
         self.in_page_size = DataStream::<u64>::read(reader)?;
         self.overflow.read_from_stream(reader)?;
         Ok(())
-    }
-}
-
-impl BPTreeLeafCellHeader {
-    pub const fn size_of() -> u64 {
-        PageId::size_of() + 3 * 8
     }
 }
 
@@ -122,66 +72,161 @@ pub struct BPTreeLeaf;
 
 impl BPTreeLeaf
 {
-    unsafe fn write_cell_header_unchecked<P>(
+    unsafe fn write_header_unchecked<P>(
         pager: &mut P, 
         page_id: &PageId, 
-        rel_offset: BPTreeLeafCellOffset, 
-        header: BPTreeLeafCellHeader
+        cell_id: &BPTreeCellId,
+        node_header: &BPTreeNodeHeader,
+        cell_header: &BPTreeLeafCellHeader
     ) -> PagerResult<()>
     where P: Pager
     {
-        pager.write_all_to_page(page_id, &header, rel_offset + 0)
-    }
-
-    /// Write element in the cell
-    unsafe fn write_cell_element_unchecked<P, E>(
-        pager: &mut P, 
-        page_id: PageId, 
-        element: &E,
-        size: BPTreeLeafCellSize, 
-        rel_offset: BPTreeLeafCellOffset
-    ) -> PagerResult<()> 
-    where P: Pager, E: OutStream
-    {
-        let mut data = DataBuffer::new();
-        element.write_to_stream(&mut data)?;
-
-        let in_page_size = size.max_in_page_element_size();
-        let element_size = data.len();
+        let size = BPTreeCellSize::from(pager.get_page_size(), node_header.capacity);
         
-        let in_page_data = data.pop_front(in_page_size);
-        pager.write_all_to_page(&page_id, &data, rel_offset + CELL_ELEMENT_OFFSET)?; 
+        BPTreeNode::write_cell_unchecked(
+            pager, 
+            page_id, 
+            cell_id, 
+            &size, 
+            &CELL_HEADER_OFFSET, 
+            cell_header
+        )?;
 
-        // Update the header accordingly
-        let mut header = pager.read_and_instantiate_from_page::<BPTreeLeafCellHeader, _>(&page_id, rel_offset + CELL_HEADER_OFFSET)?;
-        header.in_page_size = in_page_data.len() as u64;
-        header.size = element_size  as u64;
-        
-        // Write overflow data
-        header.overflow = Overflow::write(pager, &mut data, header.overflow)?;
-        
         Ok(())
     }
 
-    pub fn new<P, C>(cell: &C, pager: &mut P, capacity: BPTreeNodeCellCapacity) -> PagerResult<PageId> 
+    /// Write element in the cell
+    unsafe fn write_element_unchecked<P, E>(
+        pager:   &mut P, 
+        page_id: &PageId, 
+        cell_id: &BPTreeCellId,
+        header: &BPTreeNodeHeader,
+        cell_header: &mut BPTreeLeafCellHeader,
+        element: &E
+    ) -> PagerResult<()> 
+    where P: Pager, E: OutStream
+    {
+        let size = BPTreeCellSize::from(pager.get_page_size(), header.capacity);
+
+        let mut data = DataBuffer::new();
+        element.write_to_stream(&mut data)?;
+
+        let in_page_size = Self::max_in_page_element_size(&size);
+        let element_size = data.len();
+        
+        let in_page_data = data.pop_front(in_page_size);
+        
+        BPTreeNode::write_cell_unchecked(
+            pager, 
+            page_id, 
+            cell_id, 
+            &size, 
+            &CELL_ELEMENT_OFFSET, 
+            &in_page_data
+        )?;
+
+        cell_header.in_page_size = in_page_data.len() as u64;
+        cell_header.size = element_size as u64;
+        cell_header.overflow = Overflow::write(pager, &mut data, cell_header.overflow)?;
+
+        Ok(())
+    }
+
+    pub fn find_cell_id<P>(pager: &P, page_id: &PageId, key: u64) -> PagerResult<Option<BPTreeCellId>>
+    where P: Pager
+    {
+        let node_header = BPTreeNode::read_header(pager, &page_id)?;
+
+        for cell_id in BPTreeCellIndexes::from(&node_header).iter() 
+        {
+            unsafe {
+                let cell_header = Self::read_header_unchecked(pager, page_id, cell_id, &node_header)?;    
+                if cell_header.index >= key
+                {
+                    return Ok(Some(*cell_id));
+                }          
+            }
+
+        }
+
+        Ok(None)
+    }
+
+    pub fn insert<P, C>(pager: &mut P, page_id: &PageId, cell: &C) -> PagerResult<()> 
+    where P: Pager, C: self::traits::BPTreeLeafCell 
+    {
+        let mut node_header = BPTreeNode::read_header(pager, &page_id)?;        
+        let cell_id = Self::find_cell_id(pager, page_id, cell.get_key().into())?;
+
+        let cell_id = match cell_id {
+            Some(cell_id) => cell_id,
+            None => BPTreeCellId(node_header.len + 1)
+        };
+
+        let mut cell_header = BPTreeLeafCellHeader::default();
+        cell_header.index = cell.get_key().into();
+        
+        unsafe 
+        {
+            BPTreeNode::insert_cell(pager, page_id, &cell_id)?;
+
+            // Write the element
+            Self::write_element_unchecked(
+                pager, 
+                &page_id, 
+                &cell_id,
+                &node_header,
+                &mut cell_header,
+                cell.borrow_element()
+            )?;
+
+            // Write cell header
+            Self::write_header_unchecked(
+                pager, 
+                &page_id, 
+                &cell_id,
+                &node_header,
+                &cell_header
+            )?;
+        }
+
+        Ok(())
+    }
+
+    pub unsafe fn read_header_unchecked<P>(        
+        pager:   &P, 
+        page_id: &PageId, 
+        cell_id: &BPTreeCellId,
+        header: &BPTreeNodeHeader
+    ) -> PagerResult<BPTreeLeafCellHeader> 
+    where P: Pager
+    {
+        let size = BPTreeCellSize::from(pager.get_page_size(), header.capacity);
+        let mut header: BPTreeLeafCellHeader = Default::default();
+        BPTreeNode::read_cell_unchecked(
+            pager, 
+            page_id, 
+            cell_id, 
+            &size, 
+            &CELL_HEADER_OFFSET, 
+            &mut header
+        )?;
+        Ok(header)
+    }
+    
+    pub fn new<P, C>(pager: &mut P, capacity: BPTreeCellCapacity, cell: &C) -> PagerResult<PageId> 
     where P: Pager, C: self::traits::BPTreeLeafCell
     {
         // Create a new BPTreeNode
         let page_id = BPTreeNode::new(pager, BPTreeNodeType::Leaf, capacity.into())?;
-
-        let cell_size = BPTreeLeafCellSize::from(pager.get_page_size(), capacity);
-        let base = cell_size * 0;
-
-        unsafe {
-            // Write cell header
-            let mut header = BPTreeLeafCellHeader::default();
-            header.index = cell.get_key().into();
-            Self::write_cell_header_unchecked(pager, &page_id, base, header)?;
-
-            // Write the element
-            Self::write_cell_element_unchecked(pager, page_id, cell.borrow_element(), cell_size, base)?;
-        }
-
+        // Insert a cell
+        Self::insert(pager, &page_id, cell)?;
+        // Page id
         Ok(page_id)
+    }
+
+    pub fn max_in_page_element_size(size: &BPTreeCellSize) -> u64 
+    {
+        size.0.wrapping_sub(BPTreeLeafCellHeader::size_of())
     }
 }
