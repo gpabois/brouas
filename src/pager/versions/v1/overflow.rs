@@ -2,11 +2,15 @@ use std::ops::Deref;
 
 use crate::io::{DataBuffer, DataStream};
 use crate::io::traits::{OutStream, InStream};
+use crate::pager::PagerResult;
+use crate::pager::id::PageId;
+use crate::pager::offset::PageOffset;
+use crate::pager::page::PageSize;
+use crate::pager::page_type::PageType;
+use crate::pager::traits::{overflow::Overflow as TraitOverflow, pager::Pager};
 
-use super::page::{PageSize};
-use super::offset::PAGE_BODY_OFFSET;
-use super::{id::PageId, offset::PageOffset, page_type::PageType, PagerResult};
-use super::traits::{Pager as TraitPager};
+use super::V1;
+use super::page::PAGE_BODY_OFFSET;
 
 /// Header of an overflow page
 #[derive(Default)]
@@ -16,7 +20,8 @@ pub struct OverflowHeader
     pub in_page_size: u64
 }
 
-impl OutStream for OverflowHeader {
+impl OutStream for OverflowHeader 
+{
     fn write_to_stream<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<usize> {
         Ok(self.next.write_to_stream(writer)? + 
         DataStream::<u64>::write(writer, self.in_page_size)?)
@@ -57,30 +62,10 @@ pub fn max_body_size(page_size: PageSize) -> u64 {
     }
 }
 
-pub struct OverflowCommand 
-{
-    /// Which page is the source of the overflow.
-    pub src_page: PageId,
-    /// The offset to write back the overflow page id.
-    pub src_offset: PageOffset,
-    /// The targetted overflow page if it does already exist.
-    pub overflow_page_id: Option<PageId>,
-    /// The raw data to write into multiple overflow pages
-    pub data: DataBuffer
-}
-
-impl OverflowCommand {
-    pub fn new(src_page: PageId, src_offset: PageOffset, data: impl Into<DataBuffer>, target_page_id: Option<PageId>) -> Self {
-        Self { src_page: src_page, src_offset: src_offset, overflow_page_id: target_page_id, data: data.into() }
-    }
-}
-
 /// A tool to transfer overflowed data into dedicated pages.
 pub struct Overflow {
     /// Page size
-    pub page_size: u64,
-    /// Commands to execute
-    pub commands: Vec<OverflowCommand>
+    pub page_size: u64
 }
 
 /// A tool to retrive the data stored in an overflow page.
@@ -111,20 +96,19 @@ impl<'a> From<&'a OverflowHeader> for OverflowData {
 }
 
 impl<P> From<&P> for Overflow 
-where P: TraitPager 
+where P: Pager 
 {
     fn from(value: &P) -> Self {
         Self {
-            page_size: value.get_page_size(),
-            commands: vec![]
+            page_size: value.get_page_size()
        }
     }
 }
 
-impl Overflow
-{
+impl TraitOverflow for Overflow {
     /// Write data into overflow pages.
-    pub fn write<P: TraitPager>(pager: &mut P, data: &mut DataBuffer, base: Option<PageId>) -> PagerResult<Option<PageId>>
+    fn write<P: Pager>(pager: &mut P, data: &mut DataBuffer, base: Option<PageId>) -> PagerResult<Option<PageId>>
+    where P: Pager<VERSION = V1>
     {
         let mut prev: Option<PageId> = None;
         let mut head: Option<PageId> = None;
@@ -144,8 +128,32 @@ impl Overflow
 
         Ok(head)
     }
-    
-    fn write_oveflow<P: TraitPager>(pager: &mut P, data: &mut DataBuffer, target_page_id: Option<PageId>, prev_page_id: Option<PageId>) -> PagerResult<Option<PageId>> 
+
+    /// Read the data and send it to the element.
+    fn read<P, E: InStream>(pager: &mut P, to: &mut E, page_id: &PageId, base: Option<&mut DataBuffer>) -> PagerResult<()> 
+    where P: Pager<VERSION = V1>
+    {
+        let mut rd = DataBuffer::new();
+        let acc = base.unwrap_or(&mut rd);
+        Self::read_raw(pager, page_id, acc)?;
+        to.read_from_stream(acc)?;
+        Ok(())
+    }
+
+    /// Read the data, and create the element.
+    fn read_and_instantiate<P, E: InStream + Default>(pager: &mut P, page_id: &PageId, base: Option<&mut DataBuffer>) -> PagerResult<E> 
+    where P: Pager<VERSION = V1>
+    {
+        let mut data = E::default();
+        Self::read(pager, &mut data, page_id, base)?;
+        Ok(data)
+    }
+
+}
+
+impl Overflow
+{
+    fn write_oveflow<P: Pager>(pager: &mut P, data: &mut DataBuffer, target_page_id: Option<PageId>, prev_page_id: Option<PageId>) -> PagerResult<Option<PageId>> 
     {
         if data.is_empty() 
         {
@@ -204,7 +212,7 @@ impl Overflow
 
     /// Read the overflow header, does not check for page type.
     /// This method does not check the page type.
-    unsafe fn write_header_unchecked<P: TraitPager>(pager: &mut P, header: &OverflowHeader, page_id: &PageId) -> PagerResult<()> 
+    unsafe fn write_header_unchecked<P: Pager>(pager: &mut P, header: &OverflowHeader, page_id: &PageId) -> PagerResult<()> 
     {
         pager.write_all_to_page(page_id, header, OVERFLOW_HEADER_OFFSET)
     }
@@ -212,7 +220,7 @@ impl Overflow
 
     /// Drop all the rest of the pages from the overflow chain starting from from_page_id.
     /// This method opens the page, and drops it.
-    fn drop_tail<P: TraitPager>(pager: &mut P, from_page_id: &PageId) -> PagerResult<()> 
+    fn drop_tail<P: Pager>(pager: &mut P, from_page_id: &PageId) -> PagerResult<()> 
     {
         pager.open_page(from_page_id)?;
         
@@ -228,20 +236,20 @@ impl Overflow
 
     /// Read data from overflow page
     /// This method does not check the page type.
-    unsafe fn read_data_unchecked<P: TraitPager>(pager: &mut P, page_id: &PageId, data: &mut OverflowData) -> PagerResult<()> 
+    unsafe fn read_data_unchecked<P: Pager>(pager: &mut P, page_id: &PageId, data: &mut OverflowData) -> PagerResult<()> 
     {
         pager.read_from_page(data, page_id, OVERFLOW_BODY_OFFSET)
     }
 
     /// Read the overflow header, does not check for page type.
     /// This method does not check the page type.
-    unsafe fn read_header_unchecked<P: TraitPager>(pager: &mut P, page_id: &PageId) -> PagerResult<OverflowHeader> 
+    unsafe fn read_header_unchecked<P: Pager>(pager: &mut P, page_id: &PageId) -> PagerResult<OverflowHeader> 
     {
         pager.read_and_instantiate_from_page::<OverflowHeader, _>(&page_id, OVERFLOW_HEADER_OFFSET)
     }
 
     /// Read the overflow header
-    pub fn read_header<P: TraitPager>(pager: &mut P, page_id: &PageId) -> PagerResult<OverflowHeader> {
+    pub fn read_header<P: Pager>(pager: &mut P, page_id: &PageId) -> PagerResult<OverflowHeader> {
         pager.assert_page_type(page_id, &PageType::Overflow)?;
         unsafe {
             Self::read_header_unchecked(pager, page_id)
@@ -250,7 +258,7 @@ impl Overflow
 
     /// Read all data, does not check for page type.
     /// This method does not check the page type.
-    pub unsafe fn read_unchecked<P: TraitPager>(pager: &mut P, page_id: &PageId, acc: &mut DataBuffer) -> PagerResult<()>
+    unsafe fn read_unchecked<P: Pager>(pager: &mut P, page_id: &PageId, acc: &mut DataBuffer) -> PagerResult<()>
     {
         let mut cursor_page_id = *page_id;
 
@@ -262,7 +270,7 @@ impl Overflow
         Ok(())
     }
 
-    unsafe fn read_overflow<P: TraitPager>(pager: &mut P, page_id: &PageId, acc: &mut DataBuffer) -> PagerResult<Option<PageId>> {
+    unsafe fn read_overflow<P: Pager>(pager: &mut P, page_id: &PageId, acc: &mut DataBuffer) -> PagerResult<Option<PageId>> {
         pager.open_page(page_id)?;
 
         let header = Self::read_header_unchecked(pager, page_id)?;
@@ -274,7 +282,7 @@ impl Overflow
     }
 
     /// Read raw data from the overflow page chain, and store the result in the accumulator.
-    pub fn read_raw<P: TraitPager>(pager: &mut P, page_id: &PageId, acc: &mut DataBuffer) -> PagerResult<()> 
+    fn read_raw<P: Pager>(pager: &mut P, page_id: &PageId, acc: &mut DataBuffer) -> PagerResult<()> 
     {
         pager.assert_page_type(page_id, &PageType::Overflow)?;
         
@@ -283,24 +291,8 @@ impl Overflow
         }
     }
 
-    /// Read the data and send it to the element.
-    pub fn read<P: TraitPager, E: InStream>(pager: &mut P, to: &mut E, page_id: &PageId, base: Option<&mut DataBuffer>) -> PagerResult<()> {
-        let mut rd = DataBuffer::new();
-        let acc = base.unwrap_or(&mut rd);
-        Self::read_raw(pager, page_id, acc)?;
-        to.read_from_stream(acc)?;
-        Ok(())
-    }
-
-    /// Read the data, and create the element.
-    pub fn read_and_instantiate<P: TraitPager, E: InStream + Default>(pager: &mut P, page_id: &PageId, base: Option<&mut DataBuffer>) -> PagerResult<E> {
-        let mut data = E::default();
-        Self::read(pager, &mut data, page_id, base)?;
-        Ok(data)
-    }
-
     /// Create a new overflow page.
-    fn new_overflow_page<P: TraitPager>(pager: &mut P) -> PagerResult<PageId> 
+    fn new_overflow_page<P: Pager>(pager: &mut P) -> PagerResult<PageId> 
     {
         let header = OverflowHeader::default();
         let page_id = pager.new_page(PageType::Overflow)?;
@@ -312,10 +304,10 @@ impl Overflow
 }
 
 #[cfg(test)]
-mod tests 
+pub mod tests 
 {
     use crate::io::{DataBuffer};
-    use crate::pager::overflow::{Overflow};
+    use super::Overflow;
     use crate::pager::{Pager, PagerResult};
     
     #[test]

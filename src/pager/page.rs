@@ -2,7 +2,7 @@ use std::{alloc::Layout, mem::size_of, io::{SeekFrom, BufWriter, Cursor, BufRead
 
 use crate::io::traits::{InStream, OutStream};
 
-use super::{PagerResult, header::PageHeader, PagerError, offset::PageOffset};
+use super::{PagerResult, offset::PageOffset, error::PagerError};
 
 pub type PageSize = u64;
 
@@ -55,12 +55,11 @@ impl Page
         }
     }
 
-    pub fn new(page_size: u64, header: PageHeader) -> PagerResult<Self> 
+    pub fn new(page_size: u64) -> PagerResult<Self> 
     {
         unsafe 
         {
             let mut page = Self::alloc(page_size);
-            page.write(&header, &0u64)?;
             Ok(page)
         }
     }

@@ -1,146 +1,50 @@
 
 use std::cmp::max;
 
-use crate::io::{traits::{OutStream, InStream}, DataStream};
-
-use self::{header::{PageHeader, PAGE_HEADER_SIZE}, id::PageId, page_type::PageType, offset::{PageOffset}, page::{PageSize}, buffer::PagerBuffer, allocator::Allocator, traits::PagerStream};
-pub use self::traits::Pager as TraitPager;
+use crate::io::{traits::{OutStream, InStream}};
 
 pub mod buffer;
 pub mod page;
 pub mod id;
 pub mod page_type;
-pub mod header;
 pub mod nonce;
 pub mod offset;
-pub mod overflow; 
-pub mod btree;
-pub mod allocator;
 pub mod traits;
 pub mod stream; 
 pub mod utils;
+pub mod versions;
+pub mod error;
+pub mod result;
+pub mod bptree;
 
-#[derive(Debug)]
-pub enum PagerError
-{
-    IOError(std::io::Error),
-    WrongPageType{expecting: PageType, got: PageType},
-    PageNotOpened(PageId),
-    PageOverflow,
-    PageFull(PageId),
-    //
-    SparseCell,
-    OutOfBoundCell
-}
+use self::{traits::pager::{Pager as TraitPager, PagerVersion}, result::{PagerResult}, page_type::PageType, id::PageId, page::PageSize, buffer::PagerBuffer, offset::PageOffset, error::PagerError};
+use self::traits::stream::PagerStream;
 
-impl From<std::io::Error> for PagerError {
-    fn from(err: std::io::Error) -> Self {
-        Self::IOError(err)
-    }
-}
-
-pub type PagerResult<T> = std::result::Result<T, PagerError>;
-
-#[derive(Default)]
-pub struct PagerHeader
-{
-    pub version:    u64,
-    /// Size of a page
-    pub page_size:  u64,
-    /// Number of pages 
-    pub page_count: u64,
-    /// Pointer to the first free page that can be retrieved.
-    pub free_head:  Option<PageId>
-}
-
-impl PagerHeader {
-    fn new(page_size: PageSize) -> Self {
-        Self { 
-            version: 1, 
-            page_size: page_size, 
-            page_count: 1, 
-            free_head: Default::default() 
-        }
-    }
-
-    pub const fn size_of() -> u64 {
-        4 * 8
-    }
-}
-
-const PAGER_HEADER_SIZE: u64 = PagerHeader::size_of();
-
-impl OutStream for PagerHeader {
-    fn write_to_stream<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<usize> {
-        Ok( 
-            DataStream::<u64>::write(writer, self.version)? +
-            DataStream::<u64>::write(writer, self.page_size)? +
-            DataStream::<u64>::write(writer, self.page_count)? +
-            self.free_head.write_to_stream(writer)? 
-        )
-    }
-
-    fn write_all_to_stream<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        DataStream::<u64>::write_all(writer, self.version)?;
-        DataStream::<u64>::write_all(writer, self.page_size)?;
-        DataStream::<u64>::write_all(writer, self.page_count)?;
-        self.free_head.write_all_to_stream(writer)
-    }
-}
-
-impl InStream for PagerHeader {
-    fn read_from_stream<R: std::io::BufRead>(&mut self, read: &mut R) -> std::io::Result<()> {
-        self.version = DataStream::<u64>::read(read)?;
-        self.page_size = DataStream::<u64>::read(read)?;
-        self.page_count = DataStream::<u64>::read(read)?;
-        self.free_head.read_from_stream(read)?;
-        Ok(())
-    }
-}
-
-const PAGER_PAGE_INDEX: PageId = PageId::new(0);
-
-impl PagerHeader {
-    pub fn set<P: TraitPager>(&self, pager: &mut P) -> PagerResult<()> 
-    {
-        unsafe 
-        {
-            pager.write_all_to_page(&PAGER_PAGE_INDEX, self, 0u64)
-        }
-    }
-
-    pub fn get<P: TraitPager>(pager: &P) -> PagerResult<Self> 
-    {
-        unsafe 
-        {
-            pager.read_and_instantiate_from_page::<Self, _>(&PAGER_PAGE_INDEX, 0u64)
-        }
-    }
-}
-
-pub struct Pager<Stream: PagerStream>
+pub struct Pager<V: PagerVersion, S: PagerStream>
 {
     page_size: PageSize,
     buffer: PagerBuffer,
-    stream: Stream
+    stream: S
 }
 
-impl<Stream: PagerStream> TraitPager for Pager<Stream>
+impl<V: PagerVersion, S: PagerStream> TraitPager for Pager<V, S>
 {
+    type VERSION = V;
+
     /// New page
     fn new_page(&mut self, page_type: PageType) -> PagerResult<PageId> 
     {
-        let page_id = match Allocator::alloc(self)? {
+        let page_id = match V::Allocator::alloc(self)? {
             // We have a free page available !
             Some(free_page_id) => {
-                let mut header = PageHeader::get(&free_page_id, self)?;
+                let mut header = V::PageHeader::get(&free_page_id, self)?;
                 header.page_type = page_type;
                 header.set(self)?;
                 free_page_id
             },
             // No free pages
             None => {
-                let mut pager_header = PagerHeader::get(self)?;
+                let mut pager_header = V::PagerHeader::get(self)?;
 
                 let page_id: PageId = pager_header.page_count.into();
                 pager_header.page_count += 1;
@@ -148,7 +52,7 @@ impl<Stream: PagerStream> TraitPager for Pager<Stream>
         
                 self.alloc_page_space(&page_id);
         
-                let mut header = PageHeader::new(page_id);
+                let mut header = V::PageHeader::new(page_id);
                 header.page_type = page_type;
                 header.set(self)?;
 
@@ -192,7 +96,7 @@ impl<Stream: PagerStream> TraitPager for Pager<Stream>
     }
 
     fn assert_page_type(&self, page_id: &PageId, page_type: &PageType) -> PagerResult<()> where Self: Sized {
-        let header = PageHeader::get::<Self>(page_id, self)?;
+        let header = V::PageHeader::get::<Self>(page_id, self)?;
 
         if header.page_type != *page_type {
             return Err(PagerError::WrongPageType { expecting: *page_type, got: header.page_type });
@@ -234,15 +138,13 @@ impl<Stream: PagerStream> TraitPager for Pager<Stream>
 
 }
 
-const MIN_PAGE_SIZE: u64 = const_utils::u64::max(PAGE_HEADER_SIZE, PAGER_HEADER_SIZE);
-
-impl<Stream: PagerStream> Pager<Stream>
+impl<V: PagerVersion, S: PagerStream> Pager<V, S>
 {
     /// Create a new pager
     /// The page size must be above MIN_PAGE_SIZE.
-    pub fn new(stream: Stream, mut page_size: u64) -> Self 
+    pub fn new(stream: S, mut page_size: u64) -> Self 
     {
-        page_size = max(MIN_PAGE_SIZE, page_size);
+        page_size = max(V::MIN_PAGE_SIZE, page_size);
 
         // page_count = 1 because of the root page.
         let mut pager = Self {
@@ -253,7 +155,7 @@ impl<Stream: PagerStream> Pager<Stream>
 
         // init zero page which is the pager header
         pager.alloc_page_space(&PageId::new(0));
-        PagerHeader::new(page_size).set(&mut pager).unwrap();
+        V::PagerHeader::new(page_size).set(&mut pager).unwrap();
 
         pager
     }
@@ -272,7 +174,7 @@ pub unsafe fn change_page_type<P>(
     new_page_type: PageType) -> PagerResult<()> 
 where P: TraitPager
 {
-    let mut header = PageHeader::get(page_id, pager)?;
+    let mut header = P::VERSION::PageHeader::get(page_id, pager)?;
     header.page_type = new_page_type;
     header.set(pager)
 }
@@ -280,18 +182,22 @@ where P: TraitPager
 #[cfg(test)]
 mod tests 
 {
+    use crate::io::DataBuffer;
+    use crate::pager::id::PageId;
+    use crate::pager::nonce::PageNonce;
+    use crate::pager::page_type::PageType;
+    use crate::pager::versions::v1::page::header::PageHeader;
 
-    use crate::{pager::{id::PageId, page_type::PageType, header::PageHeader, nonce::PageNonce}, io::DataBuffer};
-    use crate::pager::traits::Pager as TraitPager;
-
-    use super::{PagerResult, Pager};
+    use super::result::PagerResult;
+    use super::versions::v1::Pager;
+    use super::traits::pager::Pager as TraitPager;
 
     #[test]
     /// Test the pager.
     pub fn test_pager() -> PagerResult<()> 
     {
         let mut pager = Pager::new(DataBuffer::new(), 1024);
-        let expected_page_id = PageId::from(1);
+        let expected_page_id = Pager::from(1);
 
         assert_eq!(expected_page_id, pager.new_page(PageType::BTree)?); 
 
