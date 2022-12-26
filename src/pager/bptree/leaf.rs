@@ -71,9 +71,7 @@ pub mod traits {
 pub struct BPTreeLeaf;
 
 impl BPTreeLeaf {
-    pub fn new<P, C>(pager: &mut P, capacity: BPTreeCellCapacity, cell: &C) -> PagerResult<PageId> 
-    where P: Pager, C: self::traits::BPTreeLeafCell
-    {
+    pub fn new<P, C>(pager: &mut P, capacity: BPTreeCellCapacity, cell: &C) -> PagerResult<PageId> where P: Pager, C: self::traits::BPTreeLeafCell {
         // Create a new BPTreeNode
         let page_id = BPTreeNode::new(pager, BPTreeNodeType::Leaf, capacity.into())?;
         // Insert a cell
@@ -81,10 +79,8 @@ impl BPTreeLeaf {
         // Page id
         Ok(page_id)
     }
-
-    pub fn find_cell_by_key<P>(pager: &P, page_id: &PageId, key: u64) -> PagerResult<Option<BPTreeCellId>>
-    where P: Pager
-    {
+    
+    pub fn find_cell_by_key<P>(pager: &P, page_id: &PageId, key: u64) -> PagerResult<Option<BPTreeCellId>> where P: Pager {
         let node_header = BPTreeNode::read_header(pager, &page_id)?;
 
         for cell_id in BPTreeCellIndexes::from(&node_header).iter() 
@@ -102,10 +98,7 @@ impl BPTreeLeaf {
         Ok(None)
     }
 
-
-    pub fn find_nearest_cell_by_key<P>(pager: &P, page_id: &PageId, key: u64) -> PagerResult<Option<BPTreeCellId>>
-    where P: Pager
-    {
+    pub fn find_nearest_cell_by_key<P>(pager: &P, page_id: &PageId, key: u64) -> PagerResult<Option<BPTreeCellId>> where P: Pager {
         let node_header = BPTreeNode::read_header(pager, &page_id)?;
 
         for cell_id in BPTreeCellIndexes::from(&node_header).iter() 
@@ -123,9 +116,7 @@ impl BPTreeLeaf {
         Ok(None)
     }
 
-    pub fn remove<P>(pager: &mut P, page_id: &PageId, key: u64) -> PagerResult<()> 
-    where P: Pager
-    {
+    pub fn remove<P>(pager: &mut P, page_id: &PageId, key: u64) -> PagerResult<()> where P: Pager {
         match Self::find_cell_by_key(pager, page_id, key)? {
             None => Ok(()),
             Some(cell_id) => {
@@ -134,9 +125,7 @@ impl BPTreeLeaf {
         }
     }
 
-    pub fn insert<P, C>(pager: &mut P, page_id: &PageId, cell: &C) -> PagerResult<()> 
-    where P: Pager, C: self::traits::BPTreeLeafCell 
-    {
+    pub fn insert<P, C>(pager: &mut P, page_id: &PageId, cell: &C) -> PagerResult<()> where P: Pager, C: self::traits::BPTreeLeafCell {
         let mut node_header = BPTreeNode::read_header(pager, &page_id)?;        
         let cell_id = Self::find_nearest_cell_by_key(pager, page_id, cell.get_key().into())?;
 
@@ -175,8 +164,7 @@ impl BPTreeLeaf {
         Ok(())
     }
 
-    pub fn max_in_page_element_size(size: &BPTreeCellSize) -> u64 
-    {
+    pub fn max_in_page_element_size(size: &BPTreeCellSize) -> u64 {
         size.0.wrapping_sub(BPTreeLeafCellHeader::size_of())
     }
 }
