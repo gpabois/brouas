@@ -1,8 +1,11 @@
 use std::io::{Seek, SeekFrom, Write, Read};
 
 use crate::io::DataBuffer;
-use super::traits::stream::PagerStream;
+use crate::io::traits::InStream;
+
+use super::PagerHeader;
 use super::id::PageId;
+use super::traits::PagerStream;
 use super::page::Page;
 
 /// Allows the data buffer to act as an input stream for the pager.
@@ -30,4 +33,12 @@ impl PagerStream for DataBuffer
         Ok(())
     }
 
+    fn read_header(&mut self) -> std::io::Result<super::PagerHeader> 
+    {
+        let mut stream = self.get_buf_read();
+        stream.seek(SeekFrom::Start(0))?;
+        let mut header = PagerHeader::default();
+        header.read_from_stream(&mut stream)?;
+        Ok(header)
+    }
 }

@@ -1,14 +1,13 @@
 use std::io::{BufRead, Write};
 
 use crate::io::traits::{OutStream, InStream};
-use crate::pager::PagerResult;
-use crate::pager::id::PageId;
-use crate::pager::nonce::PageNonce;
-use crate::pager::offset::PageOffset;
-use crate::pager::page_type::PageType;
-use crate::pager::traits::pager::Pager;
 
-pub const PAGE_HEADER_OFFSET: PageOffset = 0;
+use super::offset::PAGE_HEADER_OFFSET;
+use super::{PagerResult, TraitPager};
+
+use super::id::PageId;
+use super::nonce::PageNonce;
+use super::page_type::PageType;
 
 /// Header of page
 /// Size: 88 bytes
@@ -19,12 +18,15 @@ pub struct PageHeader
     pub id: PageId,
     /// Nonce, in case of conflicted pages.
     pub nonce: PageNonce,
-    /// Type of page.
+    /// Type of page :
+    /// + 0 = Unitialized ; 
+    /// + 1 = Collection Tree ;
+    /// + 2 = B+ Tree ;
+    /// + 3 = Overflow page.
     pub page_type: PageType,
-    /// Parent page.
+    /// Parent page
     pub parent_id: Option<PageId>
 }
-
 impl OutStream for PageHeader {
     fn write_to_stream<W: Write>(&self, writer: &mut W) -> std::io::Result<usize> {
         Ok(
@@ -64,12 +66,12 @@ impl PageHeader
         Self { id: page_id, nonce: PageNonce::new(), page_type: PageType::Unitialised, parent_id: None}
     }
 
-    pub fn set<P: Pager>(&self, pager: &mut P) -> PagerResult<()> {
+    pub fn set<P: TraitPager>(&self, pager: &mut P) -> PagerResult<()> {
         unsafe {
             pager.write_all_to_page(&self.id, self, PAGE_HEADER_OFFSET)
         }
     }
-    pub fn get<P: Pager>(page_id: &PageId, pager: &P) -> PagerResult<Self> {
+    pub fn get<P: TraitPager>(page_id: &PageId, pager: &P) -> PagerResult<Self> {
         unsafe {
             pager.read_and_instantiate_from_page::<Self, _>(page_id, PAGE_HEADER_OFFSET)
         }
