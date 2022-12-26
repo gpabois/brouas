@@ -14,7 +14,7 @@ pub mod header;
 pub mod nonce;
 pub mod offset;
 pub mod overflow; 
-pub mod btree;
+pub mod bptree;
 pub mod allocator;
 pub mod traits;
 pub mod stream; 
