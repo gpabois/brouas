@@ -2,7 +2,7 @@ use std::{alloc::Layout, mem::size_of, io::{SeekFrom, BufWriter, Cursor, BufRead
 
 use crate::io::traits::{InStream, OutStream};
 
-use self::{header::PageHeader, offset::PageOffset, page_type::PageType, id::PageId, metadata::PageMetadata, size::PageSize};
+use self::{header::PageHeader, offset::PageOffset, page_type::PageType, id::PageId, metadata::PageMetadata, size::PageSize, nonce::PageNonce};
 
 mod header;
 
@@ -76,6 +76,7 @@ impl Page
             let mut page = Self::alloc(page_size);
             page.header.page_type = page_type;
             page.header.id = page_id;
+            page.header.nonce = PageNonce::new();
             page
         }
     }
@@ -138,6 +139,7 @@ impl Page
 
     pub unsafe fn set_type(&mut self, page_type: PageType) {
         self.header.page_type = page_type;
+        self.modified = true;
     }
 
     /// Return the body ptr

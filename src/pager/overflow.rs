@@ -281,7 +281,7 @@ mod tests
     {
         // Try with 1 MB of overflow data, into 4 kB pages.
         let data_size = 1_000_000usize;
-        let mut pager = pager_fixture(data_size);
+        let mut pager = pager_fixture(4000usize);
         let data = crate::fixtures::random_raw_data(data_size);
 
         // Schedule an overflow writing
