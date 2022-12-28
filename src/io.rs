@@ -225,7 +225,7 @@ impl DataBuffer
     }
     
     /// Pop at more nb_bytes from the buffer and returns it in dedicated buffer
-    pub fn pop_front(&mut self, mut nb_bytes: impl Into<usize>) -> DataBuffer 
+    pub fn pop_front(&mut self, nb_bytes: impl Into<usize>) -> DataBuffer 
     {
         let mut nb_bytes: usize  = nb_bytes.into();
         nb_bytes = min::<usize>(self.len(), nb_bytes);

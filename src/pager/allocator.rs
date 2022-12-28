@@ -38,7 +38,7 @@ impl FreePage
             pager.change_page_type(&page_id, PageType::Free)?;
         }
 
-        let base = pager.get_body_ptr(&page_id)?;
+        let base = 0u32.into();
         let header = FreeHeader::default();
 
         Ok(Self {
@@ -49,25 +49,21 @@ impl FreePage
     }
 
     pub fn get<P: Pager>(page_id: &PageId, pager: &mut P) -> PageResult<Self> {
-        unsafe {
-            pager.open_page(page_id)?;
-            pager.assert_page_type(page_id, &PageType::Free)?;
-            
-            let base = 0u64.into();
-            let header = pager.read_and_instantiate_from_page::<FreeHeader, _>(page_id, base)?;
-            
-            Ok(Self {
-                page_id: *page_id,
-                base:     base,
-                header:   header
-            })
-        }
+        pager.open_page(page_id)?;
+        pager.assert_page_type(page_id, &PageType::Free)?;
+        
+        let base = 0u64.into();
+        let header = pager.read_and_instantiate_from_page::<FreeHeader, _>(page_id, base)?;
+        
+        Ok(Self {
+            page_id: *page_id,
+            base:     base,
+            header:   header
+        })
     }
 
     pub fn flush<P: Pager>(&mut self, pager: &mut P) -> PageResult<()> {
-        unsafe {
-            pager.write_all_to_page(&self.page_id, &self.header, self.base)
-        }
+        pager.write_all_to_page(&self.page_id, &self.header, self.base)
     }
  
     pub fn set_next(&mut self, next: Option<PageId>) {

@@ -33,6 +33,12 @@ impl OutStream for PagerVersion {
 #[derive(Default, Clone)]
 pub struct PageCount(u64);
 
+impl PageCount {
+    pub const fn size_of() -> usize {
+        std::mem::size_of::<u64>()
+    }
+}
+
 impl OutStream for PageCount {
     fn write_to_stream<W: Write>(&self, writer: &mut W) -> std::io::Result<usize> {
         DataStream::<u64>::write(writer, self.0)
@@ -94,12 +100,15 @@ impl PagerHeader {
         }
     }
 
-    pub const fn size_of() -> u64 {
-        4 * 8
+    pub const fn size_of() -> usize {
+        PagerVersion::size_of() +
+        PageSize::size_of() +
+        PageCount::size_of() +
+        PageOffset::size_of() +
+        PageId::size_of()
     }
 }
 
-const PAGER_HEADER_SIZE: u64 = PagerHeader::size_of();
 
 impl OutStream for PagerHeader {
     fn write_to_stream<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<usize> {

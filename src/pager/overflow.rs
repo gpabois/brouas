@@ -152,10 +152,8 @@ impl OverflowPage {
     {
         let chunk = data.pop_front(self.max_body_size);
         let written = chunk.len();
-        unsafe {
-            pager.write_all_to_page(&self.page_id, &chunk, self.header.in_page_ptr)?;
-            self.header.in_page_size = written.into();
-        }
+        pager.write_all_to_page(&self.page_id, &chunk, self.header.in_page_ptr)?;
+        self.header.in_page_size = written.into();
         Ok(written)
     }
 
