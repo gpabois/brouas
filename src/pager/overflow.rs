@@ -14,7 +14,7 @@ use super::traits::Pager;
 pub struct InPageSize(u32);
 
 impl InStream for InPageSize {
-    fn read_from_stream<R: std::io::BufRead>(&mut self, read: &mut R) -> std::io::Result<()> {
+    fn read_from_stream<R: std::io::Read>(&mut self, read: &mut R) -> std::io::Result<()> {
         self.0 = DataStream::<u32>::read(read)?;
         Ok(())
     }
@@ -82,7 +82,7 @@ impl OutStream for OverflowHeader {
 
 impl InStream for OverflowHeader 
 {
-    fn read_from_stream<R: std::io::BufRead>(&mut self, reader: &mut R) -> std::io::Result<()> {
+    fn read_from_stream<R: std::io::Read>(&mut self, reader: &mut R) -> std::io::Result<()> {
         self.next.read_from_stream(reader)?;
         self.in_page_size.read_from_stream(reader)?;
         self.in_page_ptr.read_from_stream(reader)?;

@@ -1,7 +1,7 @@
 use crate::io::{DataStream, traits::{InStream, OutStream}};
 use super::offset::PageOffset;
 
-#[derive(Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
 pub struct PageSize(u64);
 
 #[derive(Default, Copy, Clone)]
@@ -14,7 +14,7 @@ impl PageSize {
 }
 
 impl InStream for PageSize {
-    fn read_from_stream<R: std::io::BufRead>(&mut self, read: &mut R) -> std::io::Result<()> {
+    fn read_from_stream<R: std::io::Read>(&mut self, read: &mut R) -> std::io::Result<()> {
         self.0 = DataStream::<u64>::read(read)?;
         Ok(())
     }

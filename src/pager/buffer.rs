@@ -1,6 +1,7 @@
 use std::{collections::HashMap};
 
 use super::{page::{Page, id::PageId}};
+
 pub struct PagerBuffer {
     index: HashMap<PageId, Page>,
 }
@@ -21,6 +22,10 @@ impl PagerBuffer
 
     pub fn drop_page(&mut self, page_id: &PageId) {
         self.index.remove(page_id);
+    }
+
+    pub fn list_modified_pages(&self) -> Vec<PageId> {
+        self.index.iter().map(|(_, pg)| pg).filter(|pg| pg.modified).map(|pg| pg.get_id()).collect()
     }
 
     pub fn borrow_mut_page<'a>(&'a mut self, page_id: &PageId) -> Option<&'a mut Page>

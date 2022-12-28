@@ -1,4 +1,4 @@
-use std::{mem::size_of, ops::Add, io::{BufRead, Write}};
+use std::{mem::size_of, ops::Add, io::{Read, Write}};
 use crate::io::{traits::{OutStream, InStream}, DataStream};
 
 use super::{size::PageSize, offset::PageOffset};
@@ -32,7 +32,7 @@ impl OutStream for PageId {
 }
 
 impl InStream for Option<PageId> {
-    fn read_from_stream<R: BufRead>(&mut self, read: &mut R) -> std::io::Result<()> 
+    fn read_from_stream<R: Read>(&mut self, read: &mut R) -> std::io::Result<()> 
     {
         let value = DataStream::<u64>::read(read)?;
         if value == 0 {
@@ -63,7 +63,7 @@ impl OutStream for Option<PageId> {
 
 impl InStream for PageId 
 {
-    fn read_from_stream<R: BufRead>(&mut self, read: &mut R) -> std::io::Result<()> 
+    fn read_from_stream<R: Read>(&mut self, read: &mut R) -> std::io::Result<()> 
     {
         self.0 = DataStream::<u64>::read(read)?;
         Ok(())

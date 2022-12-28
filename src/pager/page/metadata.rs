@@ -1,5 +1,6 @@
 use super::{nonce::PageNonce, id::PageId, page_type::PageType, header::PageHeader};
 
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct PageMetadata {
     /// Number of the page.
     pub id: PageId,

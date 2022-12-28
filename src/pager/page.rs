@@ -1,4 +1,4 @@
-use std::{alloc::Layout, mem::size_of, io::{SeekFrom, BufWriter, Cursor, BufReader, Seek, Write}, ops::{Deref, DerefMut}};
+use std::{alloc::Layout, mem::size_of, io::{SeekFrom, BufWriter, Cursor, Read, Seek, Write, BufReader}, ops::{Deref, DerefMut}};
 
 use crate::io::traits::{InStream, OutStream};
 
@@ -47,7 +47,7 @@ impl DerefMut for Page
 }
 
 impl InStream for Page {
-    fn read_from_stream<R: std::io::BufRead>(&mut self, read: &mut R) -> std::io::Result<()> {
+    fn read_from_stream<R: std::io::Read>(&mut self, read: &mut R) -> std::io::Result<()> {
         unsafe {
             read.read_exact(self.get_mut_raw())
         }
@@ -77,16 +77,35 @@ impl Page
             page.header.page_type = page_type;
             page.header.id = page_id;
             page.header.nonce = PageNonce::new();
+            page.modified = true;
             page
         }
     }
 
-    pub fn flush<W: Write>(&mut self, writer: &mut W) -> std::io::Result<()> {
-        // Write the header into the pagen and write the whole thing into the stream
+    // Load the page from a stream
+    pub fn load<R: Read>(page_size: PageSize, read: &mut R) -> std::io::Result<Self> {
         unsafe {
+            let mut page = Self::alloc(page_size);
+            read.read_exact(page.get_mut_raw())?;
+
+            let mut header: PageHeader = Default::default();
+            page.read(&mut header, 0u32)?;
+            page.header = header;
+
+            Ok(page)
+        }
+    }
+
+    // Flush the page content in the stream.
+    pub fn flush<W: Write>(&mut self, writer: &mut W) -> std::io::Result<()> {
+        unsafe {
+            // Write the header into the page
             self.write_all(&self.header.clone(), 0u32)?;
+            // Write the whole page into the stream
             writer.write_all(self.get_mut_raw())?;
+            // Remove modified flag
             self.modified = false;
+            //
             Ok(())
         }
     }

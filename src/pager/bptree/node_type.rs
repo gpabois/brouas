@@ -15,7 +15,7 @@ impl Default for BPTreeNodeType {
 
 impl InStream for BPTreeNodeType 
 {
-    fn read_from_stream<R: std::io::BufRead>(&mut self, read: &mut R) -> std::io::Result<()> {
+    fn read_from_stream<R: std::io::Read>(&mut self, read: &mut R) -> std::io::Result<()> {
         *self = Self::from(DataStream::<u8>::read(read)?);
         Ok(())
     }

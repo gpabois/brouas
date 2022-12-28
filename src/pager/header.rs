@@ -1,4 +1,4 @@
-use std::{mem::size_of, io::{Write, BufRead}};
+use std::{mem::size_of, io::{Write, Read}};
 
 use crate::io::{traits::{OutStream, InStream}, DataStream};
 
@@ -14,7 +14,7 @@ impl PagerVersion {
 }
 
 impl InStream for PagerVersion {
-    fn read_from_stream<R: std::io::BufRead>(&mut self, read: &mut R) -> std::io::Result<()> {
+    fn read_from_stream<R: std::io::Read>(&mut self, read: &mut R) -> std::io::Result<()> {
         self.0 = DataStream::<u64>::read(read)?;
         Ok(())
     }
@@ -50,7 +50,7 @@ impl OutStream for PageCount {
 }
 
 impl InStream for PageCount {
-    fn read_from_stream<R: BufRead>(&mut self, read: &mut R) -> std::io::Result<()> 
+    fn read_from_stream<R: Read>(&mut self, read: &mut R) -> std::io::Result<()> 
     {
         self.0 = DataStream::<u64>::read(read)?;
         Ok(())
@@ -101,6 +101,7 @@ impl PagerHeader {
     }
 
     pub const fn size_of() -> usize {
+        4 + // Magic bytes
         PagerVersion::size_of() +
         PageSize::size_of() +
         PageCount::size_of() +
@@ -113,6 +114,7 @@ impl PagerHeader {
 impl OutStream for PagerHeader {
     fn write_to_stream<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<usize> {
         Ok( 
+            DataStream::<u32>::write(writer, 0x11A413u32)? +
             self.version.write_to_stream(writer)? +
             self.page_size.write_to_stream(writer)? +
             self.page_count.write_to_stream(writer)? + 
@@ -122,6 +124,7 @@ impl OutStream for PagerHeader {
     }
 
     fn write_all_to_stream<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        DataStream::<u32>::write_all(writer, 0x11A413u32)?;
         self.version.write_all_to_stream(writer)?;
         self.page_size.write_all_to_stream(writer)?;
         self.page_count.write_all_to_stream(writer)?;
@@ -131,7 +134,10 @@ impl OutStream for PagerHeader {
 }
 
 impl InStream for PagerHeader {
-    fn read_from_stream<R: std::io::BufRead>(&mut self, read: &mut R) -> std::io::Result<()> {
+    fn read_from_stream<R: std::io::Read>(&mut self, read: &mut R) -> std::io::Result<()> {
+        let magic_bytes: u32 = DataStream::<u32>::read(read)?;
+        assert_eq!(magic_bytes, 0x11A413u32);
+        
         self.version.read_from_stream(read)?;
         self.page_size.read_from_stream(read)?;
         self.page_count.read_from_stream(read)?;

@@ -9,7 +9,7 @@ pub struct FreeHeader
 }
 
 impl InStream for FreeHeader {
-    fn read_from_stream<R: std::io::BufRead>(&mut self, read: &mut R) -> std::io::Result<()> {
+    fn read_from_stream<R: std::io::Read>(&mut self, read: &mut R) -> std::io::Result<()> {
         self.next.read_from_stream(read)
     }
 }

@@ -1,4 +1,4 @@
-use std::{mem::size_of, io::{BufRead, Write}};
+use std::{mem::size_of, io::{Read, Write}};
 
 use crate::io::{DataStream, traits::{OutStream, InStream}};
 
@@ -34,7 +34,7 @@ impl OutStream for PageType
 
 impl InStream for PageType 
 {
-    fn read_from_stream<R: BufRead>(&mut self, reader: &mut R) -> std::io::Result<()> {
+    fn read_from_stream<R: Read>(&mut self, reader: &mut R) -> std::io::Result<()> {
         *self = Self::from(DataStream::<u8>::read(reader)?);
         Ok(())
     }

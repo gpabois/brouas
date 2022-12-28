@@ -1,4 +1,4 @@
-use std::io::{Write, BufRead};
+use std::io::{Write, Read};
 
 
 /// Trait to write object into an output stream.
@@ -11,6 +11,6 @@ pub trait OutStream
 /// Trait to read the input stream and update the instance.
 pub trait InStream 
 {
-    fn read_from_stream<R: BufRead>(&mut self, read: &mut R) -> std::io::Result<()>;
+    fn read_from_stream<R: Read>(&mut self, read: &mut R) -> std::io::Result<()>;
 }
 

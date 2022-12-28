@@ -1,4 +1,4 @@
-use std::io::{BufRead, Write};
+use std::io::{Read, Write};
 use rand::Rng;
 use std::mem::size_of;
 
@@ -19,7 +19,7 @@ impl OutStream for PageNonce
 }
 
 impl InStream for PageNonce {
-    fn read_from_stream<B: BufRead>(&mut self, reader: &mut B) -> std::io::Result<()> {
+    fn read_from_stream<B: Read>(&mut self, reader: &mut B) -> std::io::Result<()> {
         self.0 = DataStream::<u16>::read(reader)?;
         Ok(())
     }

@@ -47,7 +47,7 @@ impl OutStream for BPTreeLeafCellHeader {
 }
 impl InStream for BPTreeLeafCellHeader {
 
-    fn read_from_stream<R: std::io::BufRead>(&mut self, reader: &mut R) -> std::io::Result<()> {
+    fn read_from_stream<R: std::io::Read>(&mut self, reader: &mut R) -> std::io::Result<()> {
         self.index = DataStream::<u64>::read(reader)?;
         self.size = DataStream::<u64>::read(reader)?;
         self.in_page_size = DataStream::<u64>::read(reader)?;

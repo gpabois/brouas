@@ -1,4 +1,4 @@
-use std::io::{Write, BufRead};
+use std::io::{Write, Read};
 
 use crate::{io::{traits::{OutStream, InStream}, DataStream}};
 
@@ -34,7 +34,7 @@ impl OutStream for BPTreeNodeHeader {
 
 impl InStream for BPTreeNodeHeader 
 {
-    fn read_from_stream<R: BufRead>(&mut self, reader: &mut R) -> std::io::Result<()> {
+    fn read_from_stream<R: Read>(&mut self, reader: &mut R) -> std::io::Result<()> {
         self.node_type.read_from_stream(reader)?;
         self.len =  DataStream::<u8>::read(reader)?;
         self.capacity = DataStream::<u8>::read(reader)?;

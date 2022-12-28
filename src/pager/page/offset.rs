@@ -28,7 +28,7 @@ impl std::ops::Add<usize> for PageOffset {
 }
 
 impl InStream for PageOffset {
-    fn read_from_stream<R: std::io::BufRead>(&mut self, read: &mut R) -> std::io::Result<()> {
+    fn read_from_stream<R: std::io::Read>(&mut self, read: &mut R) -> std::io::Result<()> {
         self.0 = DataStream::<u32>::read(read)?;
         Ok(())
     }

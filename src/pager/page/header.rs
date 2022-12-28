@@ -1,4 +1,4 @@
-use std::io::{BufRead, Write};
+use std::io::{Read, Write};
 
 use crate::io::traits::{OutStream, InStream};
 
@@ -49,7 +49,7 @@ impl OutStream for PageHeader {
 
 impl InStream for PageHeader 
 {
-    fn read_from_stream<R: BufRead>(&mut self, reader: &mut R) -> std::io::Result<()> {
+    fn read_from_stream<R: Read>(&mut self, reader: &mut R) -> std::io::Result<()> {
         self.id.read_from_stream(reader)?;
         self.nonce.read_from_stream(reader)?;
         self.body_ptr.read_from_stream(reader)?;
@@ -75,7 +75,7 @@ impl PageHeader
             id: page_id, 
             nonce: PageNonce::new(), 
             page_type: PageType::Unitialised, 
-            body_ptr: PAGE_HEADER_SIZE.into(),
+            body_ptr: Self::size_of().into(),
             parent_id: None
         }
     }

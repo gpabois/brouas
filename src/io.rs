@@ -64,25 +64,25 @@ impl DataStream<u8> {
 fn read_u64<R: Read>(read: &mut R) -> std::io::Result<u64> {
     let mut value: [u8; 8] = [0; 8];
     read.read_exact(&mut value)?;
-    Ok(u64::from_ne_bytes(value))
+    Ok(u64::from_le_bytes(value))
 }
 
 fn read_u32<R: Read>(read: &mut R) -> std::io::Result<u32> {
     let mut value: [u8; 4] = [0; 4];
     read.read_exact(&mut value)?;
-    Ok(u32::from_ne_bytes(value))
+    Ok(u32::from_le_bytes(value))
 }
 
 fn read_u16<R: Read>(read: &mut R) -> std::io::Result<u16> {
     let mut value: [u8; 2] = [0; 2];
     read.read_exact(&mut value)?;
-    Ok(u16::from_ne_bytes(value))
+    Ok(u16::from_le_bytes(value))
 }
 
 fn read_u8<R: Read>(read: &mut R) -> std::io::Result<u8> {
     let mut value: [u8; 1] = [0; 1];
     read.read_exact(&mut value)?;
-    Ok(u8::from_ne_bytes(value))
+    Ok(u8::from_le_bytes(value))
 }
 
 pub struct InMemory(Cursor<Vec<u8>>);
@@ -128,19 +128,6 @@ impl std::io::Read for InMemory
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> 
     {
         self.0.read(buf)
-    }
-}
-
-impl std::io::BufRead for InMemory 
-{
-    fn fill_buf(&mut self) -> std::io::Result<&[u8]> 
-    {
-        self.0.fill_buf()
-    }
-
-    fn consume(&mut self, amt: usize) 
-    {
-        self.0.consume(amt)
     }
 }
 
@@ -198,19 +185,6 @@ impl std::io::Read for DataBuffer
         let consumed: Vec<_> = self.0.drain(0..buf.len()).collect();
         buf[..consumed.len()].copy_from_slice(&consumed);
         Ok(consumed.len())
-    }
-}
-
-impl std::io::BufRead for DataBuffer 
-{
-    fn fill_buf(&mut self) -> std::io::Result<&[u8]> 
-    {
-        Ok(&self.0)
-    }
-
-    fn consume(&mut self, amt: usize) 
-    {
-        self.0.drain(0..amt);
     }
 }
 
@@ -279,7 +253,7 @@ impl OutStream for DataBuffer
 }
 
 impl InStream for DataBuffer {
-    fn read_from_stream<R: std::io::BufRead>(&mut self, read: &mut R) -> std::io::Result<()> {
+    fn read_from_stream<R: std::io::Read>(&mut self, read: &mut R) -> std::io::Result<()> {
         read.read_exact(self)
     }
 }
