@@ -85,62 +85,68 @@ fn read_u8<R: Read>(read: &mut R) -> std::io::Result<u8> {
     Ok(u8::from_ne_bytes(value))
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
-pub struct SizedRawData<const SIZE: usize>([u8; SIZE]);
+pub struct InMemory(Cursor<Vec<u8>>);
 
-impl<const SIZE: usize> Deref for SizedRawData<SIZE> {
+impl InMemory {
+    pub fn new() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl Deref for InMemory 
+{
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        self.0.get_ref()
     }
 }
 
-impl<const SIZE: usize> DerefMut for SizedRawData<SIZE> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+impl DerefMut for InMemory {
+    fn deref_mut(&mut self) -> &mut Self::Target 
+    {
+        self.0.get_mut()
     }
 }
 
-impl<const SIZE: usize> Into<DataBuffer> for SizedRawData<SIZE> 
+
+impl std::io::Write for InMemory 
 {
-    fn into(self) -> DataBuffer {
-        DataBuffer(self.0.into())
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> 
+    {
+        self.0.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> 
+    {
+        self.0.flush()
     }
 }
 
-impl<const SIZE: usize> Default for SizedRawData<SIZE> {
-    fn default() -> Self {
-        Self::new_zeroed()
-    }
-}
-
-impl<const SIZE: usize> SizedRawData<SIZE> {
-
-    pub fn new_zeroed() -> Self {
-        Self([0; SIZE])
-    }
-
-    pub fn new(data: [u8; SIZE]) -> Self {
-        Self(data)
-    }
-}
-
-impl<const SIZE: usize> InStream for SizedRawData<SIZE> 
+impl std::io::Read for InMemory 
 {
-    fn read_from_stream<R: std::io::BufRead>(&mut self, read: &mut R) -> std::io::Result<()> {
-        read.read_exact(&mut self.0)?;
-        Ok(())
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> 
+    {
+        self.0.read(buf)
     }
 }
 
-impl<const SIZE: usize> OutStream for SizedRawData<SIZE> {
-    fn write_to_stream<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<usize> {
-        writer.write(&self.0)
+impl std::io::BufRead for InMemory 
+{
+    fn fill_buf(&mut self) -> std::io::Result<&[u8]> 
+    {
+        self.0.fill_buf()
     }
 
-    fn write_all_to_stream<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        writer.write_all(&self.0)
+    fn consume(&mut self, amt: usize) 
+    {
+        self.0.consume(amt)
+    }
+}
+
+impl std::io::Seek for InMemory {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        self.0.seek(pos)
     }
 }
 
@@ -214,15 +220,16 @@ impl DataBuffer
         Self(vec![])
     }
 
-    pub fn with_size(size: usize) -> Self {
-        Self(vec![0; size])
+    pub fn with_size(size: impl Into<usize>) -> Self {
+        Self(vec![0; size.into()])
     }
     
     /// Pop at more nb_bytes from the buffer and returns it in dedicated buffer
-    pub fn pop_front(&mut self, mut nb_bytes: u64) -> DataBuffer 
+    pub fn pop_front(&mut self, mut nb_bytes: impl Into<usize>) -> DataBuffer 
     {
-        nb_bytes = min(self.len() as u64, nb_bytes);
-        DataBuffer(self.0.drain(..nb_bytes as usize).collect())
+        let mut nb_bytes: usize  = nb_bytes.into();
+        nb_bytes = min::<usize>(self.len(), nb_bytes);
+        DataBuffer(self.0.drain(0..nb_bytes).collect())
     }
 
     pub fn increase_size_if_necessary(&mut self, size: usize) {

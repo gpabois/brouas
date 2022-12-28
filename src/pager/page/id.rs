@@ -1,19 +1,24 @@
-use std::{ops::Add, io::{BufRead, Write}};
-
+use std::{mem::size_of, ops::Add, io::{BufRead, Write}};
 use crate::io::{traits::{OutStream, InStream}, DataStream};
 
-use super::page::PageSize;
+use super::{size::PageSize, offset::PageOffset};
 
 #[derive(Debug, Hash, PartialEq, Eq, Copy, Clone, Default)]
 pub struct PageId(u64);
 
 impl std::ops::Mul<PageSize> for PageId {
-    type Output = u64;
+    type Output = PageOffset;
 
     fn mul(self, rhs: PageSize) -> Self::Output {
-        self.0 * rhs
+        let rhs: u64 = rhs.into();
+        (self.0 * rhs).into()
     }
-    
+}
+
+impl Into<u64> for PageId {
+    fn into(self) -> u64 {
+        self.0 
+    }
 }
 
 impl OutStream for PageId {
@@ -67,7 +72,7 @@ impl InStream for PageId
 
 impl PageId
 {
-    pub const fn size_of() -> u64 { 8 }
+    pub const fn size_of() -> usize { size_of::<u64>() }
     pub const fn new(val: u64) -> Self {
         Self(val)
     }

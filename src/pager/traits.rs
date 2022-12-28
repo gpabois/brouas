@@ -1,65 +1,51 @@
 use crate::io::traits::{OutStream, InStream};
-use super::{id::PageId, PagerResult, page_type::PageType, page::PageSize, header::PageHeader, PagerError, offset::PageOffset, PagerHeader};
 
-/// Pager stream
-pub trait PagerStream
-{
-    /// Place the cursor to the head of the expected page.
-    fn write_page(&mut self, page_id: &PageId, page: &super::page::Page) -> std::io::Result<()>;
-    
-    /// Read the page content.
-    fn read_page(&mut self, page_id: &PageId, page: &mut super::page::Page) -> std::io::Result<()>;
-    
-    /// Read the pager header from the stream.
-    fn read_header(&mut self) -> std::io::Result<PagerHeader>;
-}
+use super::page::{page_type::PageType, id::PageId, result::PageResult, offset::PageOffset, metadata::PageMetadata, size::PageSize};
 
 pub trait Pager 
 {
     /// Create a new page.
-    fn new_page(&mut self, page_type: PageType) -> PagerResult<PageId>;
+    fn new_page(&mut self, page_type: PageType) -> PageResult<PageId>;
     
     /// Open the page from the remote buffer, and store it in the internal buffer.
-    fn open_page(&mut self, page_id: &PageId) -> PagerResult<PageId>;
+    fn open_page(&mut self, page_id: &PageId) -> PageResult<PageId>;
     
     /// Close the page and remove it from the internal buffer, but does not flush it.
-    fn close_page(&mut self, page_id: &PageId) -> PagerResult<()>;
+    fn close_page(&mut self, page_id: &PageId) -> PageResult<()>;
     
     /// Flush the page in the remote buffer.
-    fn flush_page(&mut self, page_id: &PageId) -> PagerResult<()>;
+    fn flush_page(&mut self, page_id: &PageId) -> PageResult<()>;
 
     /// Flush the pages that have been modified.
-    fn flush_modified_pages(&mut self) -> PagerResult<()>;
+    fn flush_modified_pages(&mut self) -> PageResult<()>;
     
+    /// Flush all the new/updated pages
+    fn flush(&mut self) -> PageResult<()>;
+
     /// Drop the page, and mark it as free for further reuse.
-    fn drop_page(&mut self, page_id: &PageId) -> PagerResult<()>;
+    fn drop_page(&mut self, page_id: &PageId) -> PageResult<()>;
     
     /// Assert the page's type behind the id.
-    fn assert_page_type(&self, page_id: &PageId, page_type: &PageType) -> PagerResult<()> where Self: Sized {
-        let header = PageHeader::get::<Self>(page_id, self)?;
+    fn assert_page_type(&self, page_id: &PageId, page_type: &PageType) -> PageResult<()>;
 
-        if header.page_type != *page_type {
-            return Err(PagerError::WrongPageType { expecting: *page_type, got: header.page_type });
-        }
-
-        Ok(())
-    }
+    /// The the pointer to the body of the page
+    fn get_body_ptr(&self, page_id: &PageId) -> PageResult<PageOffset>;
 
     /// Write data to a page.
     /// This method requires the page to be opened.
-    unsafe fn write_to_page<D: OutStream, PO: Into<PageOffset>>(&mut self, page_id: &PageId, data: &D, offset: PO) -> PagerResult<usize>;
+    fn write_to_page<D: OutStream, PO: Into<PageOffset>>(&mut self, page_id: &PageId, data: &D, offset: PO) -> PageResult<usize>;
     
     /// Write data to a page, and ensures that all the data is written.
     /// This method requires the page to be opened.
-    unsafe fn write_all_to_page<D: OutStream, PO: Into<PageOffset>>(&mut self, page_id: &PageId, data: &D, offset: PO) -> PagerResult<()>;
+    fn write_all_to_page<D: OutStream, PO: Into<PageOffset>>(&mut self, page_id: &PageId, data: &D, offset: PO) -> PageResult<()>;
     
     /// Read data from a page
     /// This method requires the page to be opened.
-    unsafe fn read_from_page<D: InStream, PO: Into<PageOffset>>(&self, to: &mut D, page_id: &PageId, offset: PO) -> PagerResult<()>;
+    fn read_from_page<D: InStream, PO: Into<PageOffset>>(&self, to: &mut D, page_id: &PageId, offset: PO) -> PageResult<()>;
     
     /// Read data from a page, and returns an instance of the read object.
     /// This method requires the page to be opened.
-    unsafe fn read_and_instantiate_from_page<D: InStream + Default, PO: Into<PageOffset>>(&self, page_id: &PageId, offset: PO) -> PagerResult<D>
+    fn read_and_instantiate_from_page<D: InStream + Default, PO: Into<PageOffset>>(&self, page_id: &PageId, offset: PO) -> PageResult<D>
     {
         let mut data: D = Default::default();
         self.read_from_page(&mut data, page_id, offset)?;
@@ -67,11 +53,10 @@ pub trait Pager
 
     }
 
-    fn get_page_size(&self) -> PageSize;
-}
-
-pub trait PagerCommandExecutor {
-    type Result;
+    unsafe fn change_page_type(&mut self, page_id: &PageId, page_type: PageType) -> PageResult<()>;
     
-    fn execute<P: Pager>(&mut self, pager: &mut P) -> PagerResult<Self::Result>;
+    fn get_page_metadata(&self, page_id: &PageId) -> PageResult<PageMetadata>;
+    fn get_page_size(&self) -> PageSize;
+    fn get_freelist_head(&self) -> Option<PageId>;
+    fn set_freelist_head(&mut self, newt_head: Option<PageId>);
 }

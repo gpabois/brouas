@@ -1,4 +1,4 @@
-use std::io::{BufRead, Write};
+use std::{mem::size_of, io::{BufRead, Write}};
 
 use crate::io::{DataStream, traits::{OutStream, InStream}};
 
@@ -42,7 +42,7 @@ impl InStream for PageType
 
 impl PageType
 {
-    pub const fn size_of() -> u64 { 1 }
+    pub const fn size_of() -> usize { size_of::<u8>() }
 }
 
 

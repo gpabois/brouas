@@ -1,9 +1,10 @@
 use std::io::{BufRead, Write};
 use rand::Rng;
+use std::mem::size_of;
 
 use crate::io::{DataStream, traits::{OutStream, InStream}};
 
-#[derive(PartialEq, Eq, Debug, Default)]
+#[derive(PartialEq, Eq, Clone, Debug, Default)]
 pub struct PageNonce(u16);
 
 impl OutStream for PageNonce 
@@ -33,6 +34,7 @@ impl PageNonce
         let mut rng = rand::thread_rng();
         Self(rng.gen())
     }
-    pub const fn size_of() -> u64 { 2 }
+
+    pub const fn size_of() -> usize { size_of::<u16>() }
     
 }

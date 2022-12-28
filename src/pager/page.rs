@@ -1,16 +1,29 @@
-use std::{alloc::Layout, mem::size_of, io::{SeekFrom, BufWriter, Cursor, BufReader, Seek}, ops::{Deref, DerefMut}};
+use std::{alloc::Layout, mem::size_of, io::{SeekFrom, BufWriter, Cursor, BufReader, Seek, Write}, ops::{Deref, DerefMut}};
 
 use crate::io::traits::{InStream, OutStream};
 
-use super::{PagerResult, header::PageHeader, PagerError, offset::PageOffset};
+use self::{header::PageHeader, offset::PageOffset, page_type::PageType, id::PageId, metadata::PageMetadata, size::PageSize};
 
-pub type PageSize = u64;
+mod header;
+
+pub mod id;
+pub mod nonce;
+pub mod offset;
+pub mod page_type;
+pub mod result;
+pub mod error;
+pub mod metadata;
+pub mod size;
+
+
+pub const MIN_PAGE_SIZE: usize = PageHeader::size_of();
 
 pub struct Page 
 {
     layout: Layout, 
     ptr: *mut u8, 
-    pub modified: bool 
+    pub modified: bool,
+    header: PageHeader
 }
 
 impl Deref for Page 
@@ -33,58 +46,70 @@ impl DerefMut for Page
     }
 }
 
+impl InStream for Page {
+    fn read_from_stream<R: std::io::BufRead>(&mut self, read: &mut R) -> std::io::Result<()> {
+        unsafe {
+            read.read_exact(self.get_mut_raw())
+        }
+    }
+}
+
 impl Page
 {
-    pub fn get_page_size(&self) -> PageSize 
+    pub unsafe fn alloc(page_size: PageSize) -> Self 
     {
-        (self.layout.size() as u64).into()
-    }
-
-    pub unsafe fn alloc(page_size: u64) -> Self 
-    {
-        let layout = std::alloc::Layout::from_size_align(page_size as usize, size_of::<u8>()).unwrap();
+        let layout = std::alloc::Layout::from_size_align(page_size.into(), size_of::<u8>()).unwrap();
         
-        unsafe 
+        Page
         {
-            Page
-            {
-                layout: layout, 
-                ptr: std::alloc::alloc_zeroed(layout), 
-                modified: false 
-            }
+            layout: layout, 
+            ptr: std::alloc::alloc_zeroed(layout), 
+            modified: false,
+            header: Default::default()
         }
     }
 
-    pub fn new(page_size: u64, header: PageHeader) -> PagerResult<Self> 
+    pub fn new(page_id: PageId, page_size: PageSize, page_type: PageType) -> Self
     {
         unsafe 
         {
             let mut page = Self::alloc(page_size);
-            page.write(&header, &0u64)?;
-            Ok(page)
+            page.header.page_type = page_type;
+            page.header.id = page_id;
+            page
         }
     }
 
-    pub unsafe fn read<D: InStream>(&self, to: &mut D, raw_offset: &PageOffset) -> PagerResult<()> 
-    {
-        let mut reader = self.get_buf_read();
-        reader.seek(SeekFrom::Start(*raw_offset))?;
-        to.read_from_stream(&mut reader).map_err(PagerError::from)
+    pub fn flush<W: Write>(&mut self, writer: &mut W) -> std::io::Result<()> {
+        // Write the header into the pagen and write the whole thing into the stream
+        unsafe {
+            self.write_all(&self.header.clone(), 0u32)?;
+            writer.write_all(self.get_mut_raw())?;
+            self.modified = false;
+            Ok(())
+        }
     }
 
-    pub unsafe fn write<D: OutStream>(&mut self, data: &D, raw_offset: &PageOffset) -> PagerResult<usize> 
+    pub unsafe fn read<D: InStream>(&self, to: &mut D, offset: impl Into<PageOffset>) -> std::io::Result<()> 
+    {
+        let mut reader = self.get_buf_read();
+        reader.seek(SeekFrom::Start(offset.into().into()))?;
+        to.read_from_stream(&mut reader)
+    }
+
+    pub unsafe fn write<D: OutStream>(&mut self, data: &D, offset: impl Into<PageOffset>) -> std::io::Result<usize> 
     {
         self.modified = true;
         let mut writer = self.get_buf_write();
-        writer.seek(SeekFrom::Start(*raw_offset))?;
-        data.write_to_stream(&mut writer).map_err(PagerError::from)
+        writer.seek(SeekFrom::Start(offset.into().into()))?;
+        data.write_to_stream(&mut writer)
     }
 
-    pub unsafe fn write_all<D: OutStream>(&mut self, data: &D, raw_offset: &PageOffset) -> PagerResult<()> 
+    pub unsafe fn write_all<D: OutStream>(&mut self, data: &D, offset: impl Into<PageOffset>) -> std::io::Result<()> 
     {
         let mut writer = self.get_buf_write();
-        writer.seek(SeekFrom::Start(*raw_offset))?;
-        data.write_all_to_stream(&mut writer).map_err(PagerError::from)
+        writer.seek(SeekFrom::Start(offset.into().into()))?;
+        data.write_all_to_stream(&mut writer)
     }
 
     unsafe fn get_mut_raw(&self) -> &mut [u8]
@@ -101,10 +126,38 @@ impl Page
     {
         BufReader::new(Cursor::new(self))
     }
+    
+    pub fn get_size(&self) -> PageSize 
+    {
+        (self.layout.size() as u64).into()
+    }
+
+    pub fn get_type(&self) -> PageType {
+        self.header.page_type
+    }
+
+    pub unsafe fn set_type(&mut self, page_type: PageType) {
+        self.header.page_type = page_type;
+    }
+
+    /// Return the body ptr
+    pub fn get_body_ptr(&self) -> PageOffset {
+        self.header.body_ptr
+    }
+
+    pub fn get_metadata(&self) -> PageMetadata {
+        self.header.clone().into()
+    }
+
+    pub fn get_id(&self) -> PageId {
+        self.header.id
+    }
 }
 
-impl Drop for Page {
-    fn drop(&mut self) {
+impl Drop for Page 
+{
+    fn drop(&mut self) 
+    {
         unsafe {
             std::alloc::dealloc(self.ptr, self.layout);
         }

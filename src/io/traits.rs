@@ -1,5 +1,6 @@
 use std::io::{Write, BufRead};
 
+
 /// Trait to write object into an output stream.
 pub trait OutStream 
 {

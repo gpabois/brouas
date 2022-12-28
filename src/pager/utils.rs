@@ -1,9 +1,10 @@
 use crate::io::DataBuffer;
 
-use super::{offset::PageOffset, PagerResult, TraitPager, id::PageId};
+use super::page::{result::PageResult, offset::PageOffset, id::PageId};
+use super::traits::Pager;
 
 /// Move a page section, to another page section
-pub unsafe fn move_page_section<P: TraitPager>(pager: &mut P, from_page: &PageId, from_offset: &PageOffset, to_page: &PageId, to_offset: &PageOffset, size: usize) -> PagerResult<()> {
+pub unsafe fn move_page_section<P: Pager>(pager: &mut P, from_page: &PageId, from_offset: &PageOffset, to_page: &PageId, to_offset: &PageOffset, size: usize) -> PageResult<()> {
     let mut section = DataBuffer::with_size(size as usize);
 
     unsafe {
