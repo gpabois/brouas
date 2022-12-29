@@ -16,9 +16,6 @@ pub trait Pager
     /// Flush the page in the remote buffer.
     fn flush_page(&mut self, page_id: &PageId) -> PageResult<()>;
 
-    /// Flush the pages that have been modified.
-    fn flush_modified_pages(&mut self) -> PageResult<()>;
-    
     /// Flush all the new/updated pages
     fn flush(&mut self) -> PageResult<()>;
 

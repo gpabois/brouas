@@ -1,7 +1,7 @@
 
-use std::{cmp::max, io::{Read, Write, Seek, SeekFrom}};
+use std::{cmp::max};
 use crate::io::{traits::{OutStream, InStream}};
-use self::{page::{id::PageId, result::PageResult, Page, page_type::PageType, error::PageError, offset::PageOffset, MIN_PAGE_SIZE, size::PageSize}, buffer::PagerBuffer, header::PagerHeader, allocator::Allocator};
+use self::{page::{id::PageId, result::PageResult, Page, page_type::PageType, error::PageError, offset::PageOffset, MIN_PAGE_SIZE, size::PageSize}, buffer::PagerBuffer, header::PagerHeader, allocator::Allocator, storage::PagerStorage};
 pub use self::traits::Pager as TraitPager;
 
 pub mod buffer;
@@ -11,16 +11,17 @@ pub mod allocator;
 pub mod traits;
 pub mod utils;
 pub mod header;
+pub mod storage;
 // pub mod bptree;
 
-pub struct Pager<S: Read + Write + Seek>
+pub struct Pager<S: PagerStorage>
 {
-    header: PagerHeader,
-    buffer: PagerBuffer,
-    stream: S
+    header:  PagerHeader,
+    buffer:  PagerBuffer,
+    storage: S
 }
 
-impl<S: Read + Write + Seek> TraitPager for Pager<S>
+impl<S: PagerStorage> TraitPager for Pager<S>
 {
     /// New page
     fn new_page(&mut self, page_type: PageType) -> PageResult<PageId> 
@@ -53,12 +54,7 @@ impl<S: Read + Write + Seek> TraitPager for Pager<S>
         if self.buffer.borrow_mut_page(page_id).is_some() {
             Ok(*page_id)
         } else {
-            let size: u64 = self.get_page_size().into();
-            let mut addr: u64 = self.header.page_ptr.into();
-            let id: u64 = (*page_id).into();
-            addr = addr.wrapping_add((id - 1).wrapping_mul(size));
-            self.stream.seek(SeekFrom::Start(addr))?;
-            let page = Page::load(self.get_page_size(), &mut self.stream).map_err(PageError::from)?;
+            let page = self.storage.fetch_page(*page_id, self.get_page_size(), self.header.page_ptr.into())?;
             self.buffer.add(page);
             Ok(*page_id)
         }
@@ -72,23 +68,18 @@ impl<S: Read + Write + Seek> TraitPager for Pager<S>
 
     fn flush_page(&mut self, page_id: &PageId) -> PageResult<()> 
     {
-        let size: u64 = self.get_page_size().into();
         let page = self.buffer.borrow_mut_page(page_id).ok_or(PageError::PageNotOpened(*page_id))?;
-        let mut addr: u64 = self.header.page_ptr.into();
-        
-        let id: u64 = (*page_id).into();
-
-        addr = addr.wrapping_add((id - 1).wrapping_mul(size));
-
-        self.stream.seek(SeekFrom::Start(addr)).map_err(PageError::from)?;
-        page.flush(&mut self.stream).map_err(PageError::from)
+        self.storage.flush_page(
+            *page_id, 
+            self.header.page_size, 
+            page, 
+            self.header.page_ptr.into()
+        ).map_err(PageError::from)
     }
 
-    fn flush(&mut self) -> PageResult<()> {
-        // Reset the stream from the beginning.
-        self.stream.seek(SeekFrom::Start(0)).map_err(PageError::from)?;
-        // Write the pager header into the stream
-        self.header.write_all_to_stream(&mut self.stream).map_err(PageError::from)?;
+    fn flush(&mut self) -> PageResult<()> 
+    {
+        self.storage.flush_header(&self.header, 0)?;
         let result: Result<Vec<_>, _> = self.buffer
         .list_modified_pages()
         .iter()
@@ -98,8 +89,7 @@ impl<S: Read + Write + Seek> TraitPager for Pager<S>
         Ok(())
     }
 
-    fn drop_page(&mut self, page_id: &PageId) -> PageResult<()> 
-    {
+    fn drop_page(&mut self, page_id: &PageId) -> PageResult<()> {
         Allocator::free(self, page_id)
     }
 
@@ -142,21 +132,17 @@ impl<S: Read + Write + Seek> TraitPager for Pager<S>
     fn read_from_page<D: InStream, PO: Into<PageOffset>>(&self, to: &mut D, page_id: &PageId, offset: PO) -> PageResult<()> {
         let page = self.buffer.borrow_page(page_id).ok_or(PageError::PageNotOpened(*page_id))?;
         let offset = page.get_body_ptr() + offset.into();
-        unsafe {
-            page.read::<D>(to, offset).map_err(PageError::from)
-        }
+        page.read::<D>(to, offset).map_err(PageError::from)
     }
 
-    fn read_and_instantiate_from_page<D: InStream + Default, PO: Into<PageOffset>>(&self, page_id: &PageId, offset: PO) -> PageResult<D>
-    {
+    fn read_and_instantiate_from_page<D: InStream + Default, PO: Into<PageOffset>>(&self, page_id: &PageId, offset: PO) -> PageResult<D> {
         let mut data: D = Default::default();
         self.read_from_page(&mut data, page_id, offset)?;
         Ok(data)
 
     }
 
-    fn get_page_size(&self) -> PageSize 
-    {
+    fn get_page_size(&self) -> PageSize {
         self.header.page_size
     }
 
@@ -166,10 +152,6 @@ impl<S: Read + Write + Seek> TraitPager for Pager<S>
 
     fn set_freelist_head(&mut self, new_head: Option<PageId>) {
         self.header.free_head = new_head;
-    }
-
-    fn flush_modified_pages(&mut self) -> PageResult<()> {
-        todo!()
     }
 
     unsafe fn change_page_type(&mut self, page_id: &PageId, page_type: PageType) -> PageResult<()> {
@@ -185,11 +167,11 @@ impl<S: Read + Write + Seek> TraitPager for Pager<S>
 
 }
 
-impl<Stream: Read + Write + Seek> Pager<Stream>
+impl<S: PagerStorage> Pager<S>
 {
     /// Create a new pager
     /// The page size must be above MIN_PAGE_SIZE.
-    pub fn new(stream: Stream, page_size: impl Into<PageSize>) -> Self 
+    pub fn new(storage: S, page_size: impl Into<PageSize>) -> Self 
     {
         let page_size = max(MIN_PAGE_SIZE, page_size.into().into());
 
@@ -197,20 +179,20 @@ impl<Stream: Read + Write + Seek> Pager<Stream>
         let pager = Self {
             header: PagerHeader::new(page_size),
             buffer: PagerBuffer::new(),
-            stream: stream
+            storage: storage
         };
 
         pager
     }
 
-    pub fn load(mut stream: Stream) -> PageResult<Self> {
+    pub fn load(mut storage: S) -> PageResult<Self> {
         let mut header = PagerHeader::default();
-        header.read_from_stream(&mut stream)?;
+        storage.fetch_header(&mut header, 0)?;
 
         Ok(Self {
             header: header,
             buffer: PagerBuffer::new(),
-            stream: stream
+            storage: storage
         })
     }
 }
@@ -218,21 +200,23 @@ impl<Stream: Read + Write + Seek> Pager<Stream>
 #[cfg(test)]
 mod tests 
 {
-    use std::{fs::File};
-
-    use crate::{pager::{page::{id::PageId, page_type::PageType, nonce::PageNonce, size::PageSize, metadata::PageMetadata}}, fixtures::{pager_fixture, self}, io::DataBuffer};
-
-    use super::{page::{result::PageResult, error::PageError}, Pager};
+    use crate::{pager::{page::{id::PageId, page_type::PageType, nonce::PageNonce}}, fixtures::{pager_fixture, self}, io::DataBuffer};
+    use super::{page::{result::PageResult}};
     use super::TraitPager;
 
     #[test]
     /// Test the pager.
-    pub fn test_pager() -> PageResult<()> 
+    pub fn test_pager_with_stream_storage() -> PageResult<()> 
     {
+        let data = fixtures::random_raw_data(100);
         let mut pager = pager_fixture(1024u64);
         let expected_page_id = PageId::from(1);
-
         assert_eq!(expected_page_id, pager.new_page(PageType::BTree)?); 
+        pager.write_all_to_page(&expected_page_id, &data, 0u32)?;
+
+        pager.flush_page(&expected_page_id)?;
+        pager.close_page(&expected_page_id)?;
+        pager.open_page(&expected_page_id)?;
         
         // Check the page metadata
         let mut meta = pager.get_page_metadata(&expected_page_id)?;
@@ -240,6 +224,11 @@ mod tests
         assert_eq!(meta.id,           PageId::from(1));
         assert_ne!(meta.nonce,        PageNonce::not_set());
         assert_eq!(meta.page_type,    PageType::BTree);
+
+        let mut stored_data = DataBuffer::with_size(100usize);
+        pager.read_from_page(&mut stored_data, &expected_page_id, 0u32)?;
+
+        assert_eq!(data, stored_data);
 
         // Drop the page, should mark it as free.
         pager.drop_page(&expected_page_id)?;
@@ -250,35 +239,6 @@ mod tests
         // Now we create a new page, the pager should be able to recycle the previous dropped page.
         assert_eq!(expected_page_id, pager.new_page(PageType::Raw)?);
 
-        Ok(())
-    }
-
-    #[test]
-    pub fn test_flush_pager() -> PageResult<()> {
-        let data = fixtures::random_raw_data(100usize);
-        let mut meta = PageMetadata::default();
-        {
-            let file = File::create("pager.brouas").map_err(PageError::from)?;
-            let mut pager = Pager::new(file, 4000usize);
-            pager.new_page(PageType::BTree)?;
-            pager.write_to_page(&PageId::new(1), &data, 0u32)?;
-            meta = pager.get_page_metadata(&PageId::new(1))?;
-            pager.flush()?;
-        }
-
-        let file = File::open("pager.brouas").map_err(PageError::from)?;
-        let mut pager = Pager::load(file)?;
-        pager.open_page(&PageId::new(1))?;
-        
-        assert_eq!(pager.get_page_size(), PageSize::from(4000usize));
-        let mut stored_data = DataBuffer::with_size(100usize);
-        let stored_meta = pager.get_page_metadata(&PageId::new(1))?;
-        
-        assert_eq!(meta, stored_meta);
-
-        pager.read_from_page(&mut stored_data, &PageId::new(1), 0u32)?;
-        assert_eq!(data, stored_data);
-        
         Ok(())
     }
 }

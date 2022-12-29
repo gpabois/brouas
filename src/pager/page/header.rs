@@ -24,8 +24,6 @@ pub struct PageHeader
     pub parent_id: Option<PageId>
 }
 
-const PAGE_HEADER_SIZE: usize = PageHeader::size_of();
-
 impl OutStream for PageHeader {
     fn write_to_stream<W: Write>(&self, writer: &mut W) -> std::io::Result<usize> {
         Ok(
@@ -63,11 +61,11 @@ impl PageHeader
 {
     /// Size of the page header.
     pub const fn size_of() -> usize { 
-        PageId::size_of() + 
+        return PageId::size_of() + 
         PageNonce::size_of() +
         PageOffset::size_of()  +
         PageType::size_of() + 
-        PageId::size_of() 
+        PageId::size_of();
     }
 
     pub fn new(page_id: PageId) -> Self {

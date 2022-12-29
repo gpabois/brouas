@@ -2,7 +2,7 @@ use std::{alloc::Layout, mem::size_of, io::{SeekFrom, BufWriter, Cursor, Read, S
 
 use crate::io::traits::{InStream, OutStream};
 
-use self::{header::PageHeader, offset::PageOffset, page_type::PageType, id::PageId, metadata::PageMetadata, size::PageSize, nonce::PageNonce};
+use self::{header::PageHeader, offset::PageOffset, page_type::PageType, id::PageId, metadata::PageMetadata, size::PageSize};
 
 mod header;
 
@@ -74,9 +74,8 @@ impl Page
         unsafe 
         {
             let mut page = Self::alloc(page_size);
+            page.header = PageHeader::new(page_id);
             page.header.page_type = page_type;
-            page.header.id = page_id;
-            page.header.nonce = PageNonce::new();
             page.modified = true;
             page
         }
@@ -102,15 +101,14 @@ impl Page
             // Write the header into the page
             self.write_all(&self.header.clone(), 0u32)?;
             // Write the whole page into the stream
-            writer.write_all(self.get_mut_raw())?;
+            writer.write_all(&self)?;
             // Remove modified flag
             self.modified = false;
-            //
             Ok(())
         }
     }
 
-    pub unsafe fn read<D: InStream>(&self, to: &mut D, offset: impl Into<PageOffset>) -> std::io::Result<()> 
+    pub fn read<D: InStream>(&self, to: &mut D, offset: impl Into<PageOffset>) -> std::io::Result<()> 
     {
         let mut reader = self.get_buf_read();
         reader.seek(SeekFrom::Start(offset.into().into()))?;
@@ -121,14 +119,16 @@ impl Page
     {
         self.modified = true;
         let mut writer = self.get_buf_write();
-        writer.seek(SeekFrom::Start(offset.into().into()))?;
+        let offset: u64 = offset.into().into();
+        writer.seek(SeekFrom::Start(offset))?;
         data.write_to_stream(&mut writer)
     }
 
     pub unsafe fn write_all<D: OutStream>(&mut self, data: &D, offset: impl Into<PageOffset>) -> std::io::Result<()> 
     {
         let mut writer = self.get_buf_write();
-        writer.seek(SeekFrom::Start(offset.into().into()))?;
+        let offset: u64 = offset.into().into();
+        writer.seek(SeekFrom::Start(offset))?;
         data.write_all_to_stream(&mut writer)
     }
 
@@ -182,5 +182,35 @@ impl Drop for Page
         unsafe {
             std::alloc::dealloc(self.ptr, self.layout);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{io::DataBuffer, fixtures};
+    use super::{Page, page_type::PageType};
+
+    #[test]
+    pub fn test_page() -> std::io::Result<()> {
+        let mut buffer = DataBuffer::new();
+        let data = fixtures::random_raw_data(100);
+        let mut stored_data = DataBuffer::with_size(100usize);
+
+        let mut page = Page::new(1u64.into(), 1024usize.into(), PageType::BTree);
+
+        unsafe {
+            page.write_all(&data, page.header.body_ptr)?;
+        }
+
+        page.read(&mut stored_data, page.header.body_ptr)?;
+        assert_eq!(data, stored_data);
+        
+        page.flush(&mut buffer)?;
+        
+        page = Page::load(1024usize.into(), &mut buffer)?;
+        page.read(&mut stored_data, page.header.body_ptr)?;
+        assert_eq!(data, stored_data);
+        
+        Ok(())
     }
 }
