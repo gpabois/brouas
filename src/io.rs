@@ -1,4 +1,4 @@
-use std::{io::{Write, Read, BufWriter, Cursor, BufReader, Seek}, marker::PhantomData, ops::{DerefMut, Deref}, cmp::min};
+use std::{io::{Write, Read, BufWriter, Cursor, Seek}, marker::PhantomData, ops::{DerefMut, Deref}, cmp::min};
 
 use self::traits::{OutStream, InStream};
 
@@ -264,12 +264,10 @@ impl<'a> OutStream for DataRef<'a>
 impl OutStream for Data 
 {
     fn write_to_stream<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<usize> {
-        let mut data = self.0.clone();
         writer.write(self)
     }
 
     fn write_all_to_stream<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        let mut data = self.0.clone();
         writer.write_all(self)       
     }
 }

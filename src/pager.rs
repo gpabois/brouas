@@ -12,6 +12,7 @@ pub mod traits;
 pub mod utils;
 pub mod header;
 pub mod storage;
+pub mod types;
 // pub mod bptree;
 
 pub struct Pager<S: PagerStorage>

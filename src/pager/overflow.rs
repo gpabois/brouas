@@ -1,6 +1,6 @@
-use std::io::{Seek, SeekFrom, Read, Cursor};
+use std::io::{Seek, Read, Write};
 
-use crate::io::{Data, DataReadBuffer, DataRef};
+use crate::io::{Data, DataRef};
 use crate::io::traits::{OutStream, InStream};
 
 use super::page::error::PageError;
@@ -204,18 +204,16 @@ impl Overflow {
         Ok(())
     }
 
-    pub fn read<P: Pager>(pager: &mut P, head: &PageId) -> PageResult<Data> {
-        let mut rd = Data::new();
-
+    pub fn read<P: Pager, W: Write>(pager: &mut P, head: &PageId, to: &mut W) -> PageResult<()> {
         let mut pg_cursor: Option<PageId> = Some(*head);
 
         while let Some(next_pg) = pg_cursor {
             let pg = OverflowPage::get(&next_pg, pager)?;
-            rd.extend_from_slice(&pg.read(pager)?);
+            to.write_all(&pg.read(pager)?)?;
             pg_cursor = pg.get_next();
         }
 
-        Ok(rd)
+        Ok(())
     }
 
     /// Create a new overflow page.
@@ -229,6 +227,7 @@ impl Overflow {
 mod tests 
 {
     use crate::fixtures::pager_fixture;
+    use crate::io::Data;
     use crate::pager::overflow::{Overflow, BlockSize, OverflowHeader};
     use crate::pager::page::result::PageResult;
 
@@ -268,7 +267,8 @@ mod tests
 
         // Retrieve the whole stored data.
         // In this example, the data must have been splitted into several overflow pages. 
-        let stored_data = Overflow::read(&mut pager, &pg_id)?;
+        let mut stored_data = Data::new();
+        Overflow::read(&mut pager, &pg_id, &mut stored_data)?;
         
         assert_eq!(stored_data, data);
 
