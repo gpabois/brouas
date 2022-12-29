@@ -1,6 +1,9 @@
-use crate::io::{DataBuffer};
+use std::io::{Seek, SeekFrom, Read, Cursor};
+
+use crate::io::{Data, DataReadBuffer, DataRef};
 use crate::io::traits::{OutStream, InStream};
 
+use super::page::error::PageError;
 use super::page::id::PageId;
 use super::page::offset::PageOffset;
 use super::page::page_type::PageType;
@@ -88,17 +91,21 @@ impl OverflowPage {
     }
 
     /// Read data from the page.
-    pub fn read<P: Pager>(&self, pager: &mut P) -> PageResult<DataBuffer> {
-        let mut data = DataBuffer::with_size(self.header.in_page_size);
+    pub fn read<P: Pager>(&self, pager: &mut P) -> PageResult<Data> {
+        let mut data = Data::with_size(self.header.in_page_size);
         pager.read_from_page(&mut data, &self.page_id, self.header.in_page_ptr + self.base)?;
         Ok(data)
     }
 
     /// Write data directly into the page.
-    pub fn write<P: Pager>(&mut self, pager: &mut P, data: &mut DataBuffer) -> PageResult<usize> {
-        let chunk = data.pop_front(self.max_body_size);
-        let written = chunk.len();
-        pager.write_all_to_page(&self.page_id, &chunk, self.header.in_page_ptr + self.base)?;
+    pub fn write<P: Pager, R: Read + Seek>(&mut self, pager: &mut P, data: &mut R) -> PageResult<usize> {
+        let mut buf = Data::with_size(self.max_body_size);
+        let written = data.read(&mut buf)?;
+        pager.write_all_to_page(
+            &self.page_id, 
+            &DataRef::new(&buf[..written]), 
+            self.header.in_page_ptr + self.base
+        )?;
         self.header.in_page_size = written.into();
         Ok(written)
     }
@@ -125,7 +132,7 @@ pub struct Overflow {
 
 impl Overflow {
     /// Write data into overflow pages.
-    pub fn write<P: Pager>(pager: &mut P, data: &mut DataBuffer, head: Option<PageId>) -> PageResult<Option<PageId>>
+    pub fn write<P: Pager, R: Read + Seek>(pager: &mut P, data: &mut R, head: Option<PageId>) -> PageResult<Option<PageId>>
     {
         let mut target: Option<PageId> = head;
         let mut prev: Option<PageId> = None;
@@ -143,8 +150,9 @@ impl Overflow {
         Ok(head)
     }
     
-    fn write_overflow<P: Pager>(pager: &mut P, data: &mut DataBuffer, target_page_id: Option<PageId>, prev_page_id: Option<PageId>) -> PageResult<Option<OverflowPage>> {
-        if data.is_empty() 
+    fn write_overflow<P: Pager, R: Read + Seek>(pager: &mut P, data: &mut R, target_page_id: Option<PageId>, prev_page_id: Option<PageId>) -> PageResult<Option<OverflowPage>> 
+    {
+        if crate::io::is_empty(data).map_err(PageError::from)?
         {
             if let Some(pg_id) = target_page_id {
                 Self::drop_tail(pager, &pg_id)?;
@@ -163,7 +171,7 @@ impl Overflow {
 
         // We have a pointer to the next page, but there is no more data.
         // We drop the rest of the overflow list.
-        if target_pg.get_next().is_some() && data.is_empty() {
+        if target_pg.get_next().is_some() && crate::io::is_empty(data).map_err(PageError::from)? {
             Self::drop_tail(pager, &target_pg.get_next().unwrap())?;
             target_pg.set_next(None);
         }
@@ -196,8 +204,8 @@ impl Overflow {
         Ok(())
     }
 
-    pub fn read<P: Pager>(pager: &mut P, head: &PageId) -> PageResult<DataBuffer> {
-        let mut rd = DataBuffer::new();
+    pub fn read<P: Pager>(pager: &mut P, head: &PageId) -> PageResult<Data> {
+        let mut rd = Data::new();
 
         let mut pg_cursor: Option<PageId> = Some(*head);
 
@@ -233,7 +241,7 @@ mod tests
         let mut pager = pager_fixture(4000usize);
         
         let mut page = OverflowPage::new(&mut pager)?;
-        let written = page.write(&mut pager, &mut data.clone())?;
+        let written = page.write(&mut pager, &mut data.get_cursor_read())?;
 
         println!("Written: {}", written);
         assert_eq!(BlockSize::from(written), page.header.in_page_size);
@@ -249,15 +257,14 @@ mod tests
 
     #[test]
     /// Test the data overflow mechanism
-    pub fn test_pager_overflow() -> PageResult<()> 
-    {
+    pub fn test_pager_overflow() -> PageResult<()> {
         // Try with 1 MB of overflow data, into 4 kB pages.
         let data_size = 1_000_000usize;
         let mut pager = pager_fixture(4000usize);
         let data = crate::fixtures::random_data(data_size);
 
         // Schedule an overflow writing
-        let pg_id = Overflow::write(&mut pager, &mut data.clone(), None)?.unwrap();
+        let pg_id = Overflow::write(&mut pager, &mut data.get_cursor_read(), None)?.unwrap();
 
         // Retrieve the whole stored data.
         // In this example, the data must have been splitted into several overflow pages. 

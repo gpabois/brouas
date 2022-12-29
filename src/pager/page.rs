@@ -187,14 +187,14 @@ impl Drop for Page
 
 #[cfg(test)]
 mod tests {
-    use crate::{io::DataBuffer, fixtures};
+    use crate::{io::Data, fixtures};
     use super::{Page, page_type::PageType};
 
     #[test]
     pub fn test_page() -> std::io::Result<()> {
-        let mut buffer = DataBuffer::new();
+        let mut buffer = Data::new();
         let data = fixtures::random_data(100);
-        let mut stored_data = DataBuffer::with_size(100usize);
+        let mut stored_data = Data::with_size(100usize);
 
         let mut page = Page::new(1u64.into(), 1024usize.into(), PageType::BTree);
 

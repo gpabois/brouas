@@ -1,4 +1,4 @@
-use std::{io::{Write, Read, BufWriter, Cursor, BufReader}, marker::PhantomData, ops::{DerefMut, Deref}, cmp::min};
+use std::{io::{Write, Read, BufWriter, Cursor, BufReader, Seek}, marker::PhantomData, ops::{DerefMut, Deref}, cmp::min};
 
 use self::traits::{OutStream, InStream};
 
@@ -138,9 +138,9 @@ impl std::io::Seek for InMemory {
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub struct DataBuffer(Vec<u8>);
+pub struct Data(Vec<u8>);
 
-impl From<Vec<u8>> for DataBuffer 
+impl From<Vec<u8>> for Data 
 {
     fn from(value: Vec<u8>) -> Self 
     {
@@ -148,7 +148,7 @@ impl From<Vec<u8>> for DataBuffer
     }
 }
 
-impl Deref for DataBuffer 
+impl Deref for Data 
 {
     type Target = [u8];
 
@@ -157,14 +157,14 @@ impl Deref for DataBuffer
     }
 }
 
-impl DerefMut for DataBuffer {
+impl DerefMut for Data {
     fn deref_mut(&mut self) -> &mut Self::Target 
     {
         &mut self.0
     }
 }
 
-impl Write for DataBuffer 
+impl Write for Data 
 {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> 
     {
@@ -178,7 +178,7 @@ impl Write for DataBuffer
     }
 }
 
-impl std::io::Read for DataBuffer 
+impl std::io::Read for Data 
 {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> 
     {
@@ -188,7 +188,7 @@ impl std::io::Read for DataBuffer
     }
 }
 
-impl DataBuffer 
+impl Data 
 {
     pub fn new() -> Self {
         Self(vec![])
@@ -199,11 +199,11 @@ impl DataBuffer
     }
     
     /// Pop at more nb_bytes from the buffer and returns it in dedicated buffer
-    pub fn pop_front(&mut self, nb_bytes: impl Into<usize>) -> DataBuffer 
+    pub fn pop_front(&mut self, nb_bytes: impl Into<usize>) -> Data 
     {
         let mut nb_bytes: usize  = nb_bytes.into();
         nb_bytes = min::<usize>(self.len(), nb_bytes);
-        DataBuffer(self.0.drain(0..nb_bytes).collect())
+        Data(self.0.drain(0..nb_bytes).collect())
     }
 
     pub fn increase_size_if_necessary(&mut self, size: usize) {
@@ -223,14 +223,14 @@ impl DataBuffer
         self.0.len()
     }
 
-    pub fn get_buf_write(&mut self) -> BufWriter<Cursor<&mut [u8]>> 
+    pub fn get_cursor_write(&mut self) -> BufWriter<Cursor<&mut [u8]>> 
     {
         BufWriter::new(Cursor::new(&mut self.0))       
     }
 
-    pub fn get_buf_read(&self) -> BufReader<Cursor<&[u8]>>
+    pub fn get_cursor_read(&self) -> DataReadBuffer<'_>
     {
-        BufReader::new(Cursor::new(&self.0))
+        Cursor::new(&self.0)
     }
 
     pub fn is_empty(&self) -> bool 
@@ -239,21 +239,52 @@ impl DataBuffer
     }
 }
 
-impl OutStream for DataBuffer 
+pub type DataReadBuffer<'a> = Cursor<&'a[u8]>;
+
+pub struct DataRef<'a>(&'a [u8]);
+
+impl<'a> DataRef<'a> {
+    pub fn new(r: &'a [u8]) -> Self {
+        Self(r)
+    }
+}
+
+impl<'a> OutStream for DataRef<'a>
+{
+    fn write_to_stream<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<usize> {
+        writer.write(&self.0)
+    }
+
+    fn write_all_to_stream<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        writer.write_all(&self.0)       
+    }
+}
+
+
+impl OutStream for Data 
 {
     fn write_to_stream<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<usize> {
         let mut data = self.0.clone();
-        writer.write(&mut data)
+        writer.write(self)
     }
 
     fn write_all_to_stream<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
         let mut data = self.0.clone();
-        writer.write_all(&mut data)       
+        writer.write_all(self)       
     }
 }
 
-impl InStream for DataBuffer {
+impl InStream for Data {
     fn read_from_stream<R: std::io::Read>(&mut self, read: &mut R) -> std::io::Result<()> {
         read.read_exact(self)
     }
+}
+
+pub fn is_empty<S: Seek>(stream: &mut S) -> std::io::Result<bool> {
+    let cursor = stream.stream_position()?;
+    let end = stream.seek(std::io::SeekFrom::End(0))?;
+
+    stream.seek(std::io::SeekFrom::Start(cursor))?;
+    
+    Ok(cursor == end)
 }

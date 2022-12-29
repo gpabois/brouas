@@ -206,7 +206,7 @@ impl<S: PagerStorage> Pager<S>
 #[cfg(test)]
 mod tests 
 {
-    use crate::{pager::{page::{id::PageId, page_type::PageType, nonce::PageNonce}}, fixtures::{pager_fixture, self}, io::DataBuffer};
+    use crate::{pager::{page::{id::PageId, page_type::PageType, nonce::PageNonce}}, fixtures::{pager_fixture, self}, io::Data};
     use super::{page::{result::PageResult}};
     use super::TraitPager;
 
@@ -232,7 +232,7 @@ mod tests
         assert_ne!(meta.nonce,        PageNonce::not_set());
         assert_eq!(meta.page_type,    PageType::BTree);
 
-        let mut stored_data = DataBuffer::with_size(100usize);
+        let mut stored_data = Data::with_size(100usize);
         pager.read_from_page(&mut stored_data, &expected_page_id, 100u32)?;
 
         assert_eq!(data, stored_data);
@@ -261,7 +261,7 @@ mod tests
 
         pager.open_page(&PageId::new(400))?;
 
-        let mut stored_data = DataBuffer::with_size(100usize);
+        let mut stored_data = Data::with_size(100usize);
         pager.read_from_page(&mut stored_data, &pg_id, 0u32)?;
         assert_eq!(data, stored_data);
 

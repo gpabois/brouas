@@ -3,11 +3,11 @@ use rand::RngCore;
 use rand::Rng;
 use rand::seq::SliceRandom;
 
-use crate::{io::{DataBuffer, InMemory}, pager::{traits::Pager as TraitPager, page::{result::PageResult, id::PageId, page_type::PageType}}, pager::{Pager, page::size::PageSize, storage::{PagerStream}}};
+use crate::{io::{Data, InMemory}, pager::{traits::Pager as TraitPager, page::{result::PageResult, id::PageId, page_type::PageType}}, pager::{Pager, page::size::PageSize, storage::{PagerStream}}};
 
 /// Create a random array of raw bytes.
-pub fn random_data(size: usize) -> DataBuffer {
-    let mut data = DataBuffer::with_size(size);
+pub fn random_data(size: usize) -> Data {
+    let mut data = Data::with_size(size);
     OsRng.fill_bytes(&mut data);
     data
 }
