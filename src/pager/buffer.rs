@@ -20,8 +20,12 @@ impl PagerBuffer
         self.index.insert(page.get_id(), page);      
     }
 
-    pub fn drop_page(&mut self, page_id: &PageId) {
+    pub fn remove(&mut self, page_id: &PageId) {
         self.index.remove(page_id);
+    }
+
+    pub fn remove_all(&mut self) {
+        self.index = Default::default();
     }
 
     pub fn list_modified_pages(&self) -> Vec<PageId> {

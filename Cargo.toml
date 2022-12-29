@@ -6,9 +6,14 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+bencher = "0.1.5"
 const-utils = "0.1.1"
 elsa = "1.7.0"
 hex = "0.4.3"
 rand = "0.8.5"
 serde = { version = "1.0.149", features = ["derive"] }
 sha2 = "0.10.6"
+
+[[bench]]
+name = "brouas"
+harness = false

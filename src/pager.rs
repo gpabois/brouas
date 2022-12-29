@@ -62,7 +62,7 @@ impl<S: PagerStorage> TraitPager for Pager<S>
 
     fn close_page(&mut self, page_id: &PageId) -> PageResult<()> 
     {
-        self.buffer.drop_page(page_id);
+        self.buffer.remove(page_id);
         Ok(())
     }
 
@@ -142,6 +142,17 @@ impl<S: PagerStorage> TraitPager for Pager<S>
 
     }
 
+    unsafe fn change_page_type(&mut self, page_id: &PageId, page_type: PageType) -> PageResult<()> {
+        let page = self.buffer.borrow_mut_page(page_id).ok_or(PageError::PageNotOpened(*page_id))?;
+        page.set_type(page_type);
+        Ok(())
+    }
+
+    fn get_page_metadata(&self, page_id: &PageId) -> PageResult<page::metadata::PageMetadata> {
+        let page = self.buffer.borrow_page(page_id).ok_or(PageError::PageNotOpened(*page_id))?;
+        Ok(page.get_metadata())
+    }
+
     fn get_page_size(&self) -> PageSize {
         self.header.page_size
     }
@@ -154,15 +165,9 @@ impl<S: PagerStorage> TraitPager for Pager<S>
         self.header.free_head = new_head;
     }
 
-    unsafe fn change_page_type(&mut self, page_id: &PageId, page_type: PageType) -> PageResult<()> {
-        let page = self.buffer.borrow_mut_page(page_id).ok_or(PageError::PageNotOpened(*page_id))?;
-        page.set_type(page_type);
+    fn close_all(&mut self) -> PageResult<()> {
+        self.buffer.remove_all();
         Ok(())
-    }
-
-    fn get_page_metadata(&self, page_id: &PageId) -> PageResult<page::metadata::PageMetadata> {
-        let page = self.buffer.borrow_page(page_id).ok_or(PageError::PageNotOpened(*page_id))?;
-        Ok(page.get_metadata())
     }
 
 }
@@ -197,6 +202,7 @@ impl<S: PagerStorage> Pager<S>
     }
 }
 
+
 #[cfg(test)]
 mod tests 
 {
@@ -208,12 +214,13 @@ mod tests
     /// Test the pager.
     pub fn test_pager_with_stream_storage() -> PageResult<()> 
     {
-        let data = fixtures::random_raw_data(100);
+        let data = fixtures::random_data(100);
         let mut pager = pager_fixture(1024u64);
         let expected_page_id = PageId::from(1);
         assert_eq!(expected_page_id, pager.new_page(PageType::BTree)?); 
-        pager.write_all_to_page(&expected_page_id, &data, 0u32)?;
+        pager.write_all_to_page(&expected_page_id, &data, 100u32)?;
 
+        // Flush, close, and open so we ensure that the page has been stored in the stream.
         pager.flush_page(&expected_page_id)?;
         pager.close_page(&expected_page_id)?;
         pager.open_page(&expected_page_id)?;
@@ -226,7 +233,7 @@ mod tests
         assert_eq!(meta.page_type,    PageType::BTree);
 
         let mut stored_data = DataBuffer::with_size(100usize);
-        pager.read_from_page(&mut stored_data, &expected_page_id, 0u32)?;
+        pager.read_from_page(&mut stored_data, &expected_page_id, 100u32)?;
 
         assert_eq!(data, stored_data);
 
@@ -238,6 +245,26 @@ mod tests
 
         // Now we create a new page, the pager should be able to recycle the previous dropped page.
         assert_eq!(expected_page_id, pager.new_page(PageType::Raw)?);
+
+        Ok(())
+    }
+
+    #[test]
+    pub fn test_pager_multiple_pages() -> PageResult<()> {
+        let data = fixtures::random_data(100);
+        let mut pager = fixtures::pager_fixture(1024u64);
+        fixtures::random_pages(&mut pager, 1000)?;
+        let pg_id = PageId::new(400);
+
+        pager.write_all_to_page(&pg_id, &data, 0u32)?;
+        pager.flush()?;
+
+        pager.open_page(&PageId::new(400))?;
+
+        let mut stored_data = DataBuffer::with_size(100usize);
+        pager.read_from_page(&mut stored_data, &pg_id, 0u32)?;
+        assert_eq!(data, stored_data);
+
 
         Ok(())
     }

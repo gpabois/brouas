@@ -12,6 +12,8 @@ pub trait Pager
     
     /// Close the page and remove it from the internal buffer, but does not flush it.
     fn close_page(&mut self, page_id: &PageId) -> PageResult<()>;
+
+    fn close_all(&mut self) -> PageResult<()>;
     
     /// Flush the page in the remote buffer.
     fn flush_page(&mut self, page_id: &PageId) -> PageResult<()>;

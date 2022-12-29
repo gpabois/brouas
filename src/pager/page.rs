@@ -193,22 +193,22 @@ mod tests {
     #[test]
     pub fn test_page() -> std::io::Result<()> {
         let mut buffer = DataBuffer::new();
-        let data = fixtures::random_raw_data(100);
+        let data = fixtures::random_data(100);
         let mut stored_data = DataBuffer::with_size(100usize);
 
         let mut page = Page::new(1u64.into(), 1024usize.into(), PageType::BTree);
 
         unsafe {
-            page.write_all(&data, page.header.body_ptr)?;
+            page.write_all(&data, page.header.body_ptr + 100)?;
         }
 
-        page.read(&mut stored_data, page.header.body_ptr)?;
+        page.read(&mut stored_data, page.header.body_ptr + 100)?;
         assert_eq!(data, stored_data);
         
         page.flush(&mut buffer)?;
         
         page = Page::load(1024usize.into(), &mut buffer)?;
-        page.read(&mut stored_data, page.header.body_ptr)?;
+        page.read(&mut stored_data, page.header.body_ptr + 100)?;
         assert_eq!(data, stored_data);
         
         Ok(())
