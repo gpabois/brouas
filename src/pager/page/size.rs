@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::io::{DataStream, traits::{InStream, OutStream}};
 use super::offset::PageOffset;
 
@@ -6,6 +8,12 @@ pub struct PageSize(u64);
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct BlockSize(u64);
+
+impl Display for BlockSize {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 impl BlockSize {
     pub const fn size_of() -> usize {

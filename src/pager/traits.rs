@@ -1,6 +1,6 @@
 use crate::io::traits::{OutStream, InStream};
 
-use super::page::{page_type::PageType, id::PageId, result::PageResult, offset::PageOffset, metadata::PageMetadata, size::PageSize};
+use super::page::{page_type::PageType, id::PageId, result::PageResult, offset::PageOffset, metadata::PageMetadata, size::{PageSize, BlockSize}};
 
 pub trait Pager 
 {
@@ -29,6 +29,12 @@ pub trait Pager
 
     /// The the pointer to the body of the page
     fn get_body_ptr(&self, page_id: &PageId) -> PageResult<PageOffset>;
+
+    /// The capacity of the page (page_size - reserved)
+    fn get_page_capacity(&self, page_id: &PageId) -> PageResult<BlockSize> {
+        let capacity = self.get_page_size() - self.get_body_ptr(page_id)?;
+        Ok(capacity)
+    }
 
     /// Write data to a page.
     /// This method requires the page to be opened.

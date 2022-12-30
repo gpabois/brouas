@@ -1,9 +1,15 @@
-use std::mem::size_of;
+use std::{mem::size_of, fmt::Display};
 
 use crate::io::{traits::{InStream, OutStream}, DataStream};
 
 #[derive(Default, Copy, Clone)]
 pub struct PageOffset(u32);
+
+impl Display for PageOffset {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 impl PageOffset {
     pub const fn size_of() -> usize {
