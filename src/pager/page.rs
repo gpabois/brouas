@@ -47,7 +47,7 @@ impl DerefMut for Page
 }
 
 impl InStream for Page {
-    fn read_from_stream<R: std::io::Read>(&mut self, read: &mut R) -> std::io::Result<()> {
+    fn read_from_stream<R: std::io::Read + ?Sized>(&mut self, read: &mut R) -> std::io::Result<()> {
         unsafe {
             read.read_exact(self.get_mut_raw())
         }

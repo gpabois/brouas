@@ -251,11 +251,11 @@ impl<'a> DataRef<'a> {
 
 impl<'a> OutStream for DataRef<'a>
 {
-    fn write_to_stream<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<usize> {
+    fn write_to_stream<W: std::io::Write + ?Sized>(&self, writer: &mut W) -> std::io::Result<usize> {
         writer.write(&self.0)
     }
 
-    fn write_all_to_stream<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
+    fn write_all_to_stream<W: Write + ?Sized>(&self, writer: &mut W) -> std::io::Result<()> {
         writer.write_all(&self.0)       
     }
 }
@@ -263,17 +263,17 @@ impl<'a> OutStream for DataRef<'a>
 
 impl OutStream for Data 
 {
-    fn write_to_stream<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<usize> {
+    fn write_to_stream<W: std::io::Write + ?Sized>(&self, writer: &mut W) -> std::io::Result<usize> {
         writer.write(self)
     }
 
-    fn write_all_to_stream<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
+    fn write_all_to_stream<W: Write + ?Sized>(&self, writer: &mut W) -> std::io::Result<()> {
         writer.write_all(self)       
     }
 }
 
 impl InStream for Data {
-    fn read_from_stream<R: std::io::Read>(&mut self, read: &mut R) -> std::io::Result<()> {
+    fn read_from_stream<R: std::io::Read + ?Sized>(&mut self, read: &mut R) -> std::io::Result<()> {
         read.read_exact(self)
     }
 }
