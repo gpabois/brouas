@@ -20,5 +20,7 @@ pub mod traits {
 
         fn branch_insert<Iter>(&mut self, branch: BPTreeNodeId, left: BPTreeNodeId, key: Self::Key, right: BPTreeNodeId);
         
+        fn is_leaf(&self, id: BPTreeNodeId) -> bool;
+        fn is_branch(&self, id: BPTreeNodeId) -> bool;
     }
 }
