@@ -1,5 +1,7 @@
 pub enum BPTreeError {
     NotABranch,
     NotALeaf,
-    UnexistingNode
+    UnexistingNode,
+    ExistingKey,
+    KeyNotFound,
 }
