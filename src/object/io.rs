@@ -4,11 +4,14 @@ use std::ops::Deref;
 use self::traits::{ObjectRead, ObjectWrite};
 use crate::io::Data;
 use crate::io::traits::InStream;
+use super::buffer::ObjectsBuffer;
 use super::meta::ObjectMeta;
 use super::result::Result;
 use super::error::Error;
 
 pub mod traits;
+
+pub type InMemoryObjects = ObjectsBuffer;
 
 pub struct SledObjectsStream (sled::Tree);
 

@@ -1,5 +1,6 @@
 use super::ObjectType;
 
+#[derive(Debug)]
 pub enum Error {
     IO(std::io::Error),
     ObjectNotFound,

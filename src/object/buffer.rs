@@ -38,6 +38,9 @@ pub struct ObjectsBuffer {
 }
 
 impl ObjectsBuffer {
+    pub fn new() -> Self {
+        Self { table: Default::default() }
+    }
     /// Flush upserted objects
     pub fn flush_objects<OW: ObjectWrite>(&mut self, write: &mut OW) -> Result<()> {
         self.table
@@ -49,6 +52,10 @@ impl ObjectsBuffer {
         }).collect::<Result<Vec<_>>>()?;
 
         Ok(())
+    }
+
+    pub fn contains(&self, id: &ObjectId) -> bool {
+        self.table.contains_key(id)
     }
 }
 
