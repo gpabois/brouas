@@ -7,15 +7,15 @@ pub mod traits;
 pub struct DataStream<T>(PhantomData<T>);
 
 impl DataStream<u64> {
-    pub fn read<R: Read>(read: &mut R) -> std::io::Result<u64> {
+    pub fn read<R: Read + ?Sized>(read: &mut R) -> std::io::Result<u64> {
         read_u64(read)
     }
 
-    pub fn write_all<W: Write>(writer: &mut W, value: u64) -> std::io::Result<()> {
+    pub fn write_all<W: Write + ?Sized>(writer: &mut W, value: u64) -> std::io::Result<()> {
         writer.write_all(&value.to_ne_bytes())
     }
 
-    pub fn write<W: Write>(writer: &mut W, value: u64) -> std::io::Result<usize> {
+    pub fn write<W: Write + ?Sized>(writer: &mut W, value: u64) -> std::io::Result<usize> {
         writer.write(&value.to_ne_bytes())
     }
 }
@@ -61,7 +61,7 @@ impl DataStream<u8> {
     }
 }
 
-fn read_u64<R: Read>(read: &mut R) -> std::io::Result<u64> {
+fn read_u64<R: Read + ?Sized>(read: &mut R) -> std::io::Result<u64> {
     let mut value: [u8; 8] = [0; 8];
     read.read_exact(&mut value)?;
     Ok(u64::from_le_bytes(value))
@@ -251,30 +251,35 @@ impl<'a> DataRef<'a> {
 
 impl<'a> OutStream for DataRef<'a>
 {
-    fn write_to_stream<W: std::io::Write + ?Sized>(&self, writer: &mut W) -> std::io::Result<usize> {
-        writer.write(&self.0)
+    type Output = Self;
+
+    fn write_to_stream<W: std::io::Write + ?Sized>(output: &Self::Output, writer: &mut W) -> std::io::Result<usize> {
+        writer.write(&output.0)
     }
 
-    fn write_all_to_stream<W: Write + ?Sized>(&self, writer: &mut W) -> std::io::Result<()> {
-        writer.write_all(&self.0)       
+    fn write_all_to_stream<W: Write + ?Sized>(output: &Self::Output, writer: &mut W) -> std::io::Result<()> {
+        writer.write_all(&output.0)       
     }
 }
 
 
-impl OutStream for Data 
-{
-    fn write_to_stream<W: std::io::Write + ?Sized>(&self, writer: &mut W) -> std::io::Result<usize> {
-        writer.write(self)
+impl OutStream for Data {
+    type Output = Self;
+
+    fn write_to_stream<W: std::io::Write + ?Sized>(output: &Self, writer: &mut W) -> std::io::Result<usize> {
+        writer.write(output)
     }
 
-    fn write_all_to_stream<W: Write + ?Sized>(&self, writer: &mut W) -> std::io::Result<()> {
-        writer.write_all(self)       
+    fn write_all_to_stream<W: Write + ?Sized>(output: &Self, writer: &mut W) -> std::io::Result<()> {
+        writer.write_all(output)       
     }
 }
 
 impl InStream for Data {
-    fn read_from_stream<R: std::io::Read + ?Sized>(&mut self, read: &mut R) -> std::io::Result<()> {
-        read.read_exact(self)
+    type Input = Self;
+    
+    fn read_from_stream<R: std::io::Read + ?Sized>(input: &mut Self, read: &mut R) -> std::io::Result<()> {
+        read.read_exact(input)
     }
 }
 

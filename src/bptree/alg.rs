@@ -1,4 +1,4 @@
-use super::{node::BPTreeNodeId, nodes::traits::{BPTreeNodes, Split}, BPTree};
+use super::{node::BPTreeNodeId, nodes::traits::{BPTreeNodes, Split}, BPTree, result::BPTreeResult};
 
 pub type Path = Vec<BPTreeNodeId>;
 
@@ -45,7 +45,7 @@ fn balance_overflow<Nodes: BPTreeNodes>(tree: &mut BPTree, nodes: &mut Nodes, mu
 }
 
 /// Insert a key, value tuple in the tree.
-pub fn insert<Nodes: BPTreeNodes>(tree: &mut BPTree, nodes: &mut Nodes, key: Nodes::Key, value: Nodes::Value) {
+pub fn insert<Nodes: BPTreeNodes>(tree: &mut BPTree, nodes: &mut Nodes, key: Nodes::Key, value: Nodes::Value) -> BPTreeResult<()> {
     let mut path = search_path(tree, nodes, &key);
 
     // Tree empty
@@ -55,11 +55,22 @@ pub fn insert<Nodes: BPTreeNodes>(tree: &mut BPTree, nodes: &mut Nodes, key: Nod
                 nodes.new_leaf(tree.get_capacity(), key, value)
             )
         );
+        Ok(())
     } else {
         let leaf = path.pop().unwrap();
-        nodes.leaf_insert(leaf, key, value);
+        nodes.leaf_insert(leaf, key, value)?;
         
         // Handle the overflow, and balance the tree accordingly
         balance_overflow(tree, nodes, path);
+
+        Ok(())
+    }
+}
+
+pub fn contains<Nodes: BPTreeNodes>(tree: &BPTree, nodes: &Nodes, key: &Nodes::Key) -> BPTreeResult<bool> {
+    if let Some(leaf) = search_path(tree, nodes, key).last() {
+        nodes.leaf_contains(*leaf, key)
+    } else {
+        Ok(false)
     }
 }

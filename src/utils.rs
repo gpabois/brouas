@@ -21,6 +21,14 @@ impl<T> Watcher<T> {
             modified: false
         }
     }
+
+    pub fn is_modified(&self) -> bool {
+        self.modified
+    }
+
+    pub fn done(&mut self)  {
+        self.modified = false;
+    }
 }
 
 impl<T> Deref for Watcher<T> {

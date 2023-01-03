@@ -1,9 +1,51 @@
+use crate::{io::{traits::{OutStream, InStream}, DataStream}, object::{BPTREE_LEAF}};
+
 use super::{node::{BPTreeNodeId}, nodes::traits::{BPTreeNodes, Split}, result::BPTreeResult, error::BPTreeError};
 
 pub struct LeafCell<Key, Value>
 {
     key: Key,
     value: Value
+}
+
+impl<K,V> Clone for LeafCell<K,V> where K: Clone, V: Clone {
+    fn clone(&self) -> Self {
+        Self { key: self.key.clone(), value: self.value.clone() }
+    }
+}
+
+impl<K,V> Default for LeafCell<K,V> where K: Default, V: Default {
+    fn default() -> Self {
+        Self { key: Default::default(), value: Default::default() }
+    }
+}
+
+impl<K, V> OutStream for LeafCell<K, V>
+where K: OutStream<Output=K>, V: OutStream<Output=V> {
+    type Output = Self;
+
+    fn write_to_stream<W: std::io::Write + ?Sized>(output: &Self, writer: &mut W) -> std::io::Result<usize> {
+        Ok(
+            K::write_to_stream(&output.key, writer)? +
+            V::write_to_stream(&output.value, writer)?
+        )
+    }
+
+    fn write_all_to_stream<W: std::io::Write + ?Sized>(output: &Self, writer: &mut W) -> std::io::Result<()> {
+        K::write_all_to_stream(&output.key, writer)?;
+        V::write_all_to_stream(&output.value, writer)
+    }
+}
+
+impl <K, V> InStream for LeafCell<K, V> 
+where K: InStream<Input=K>, V: InStream<Input=V>
+{
+    type Input = Self;
+
+    fn read_from_stream<R: std::io::Read + ?Sized>(input: &mut Self, read: &mut R) -> std::io::Result<()> {
+        K::read_from_stream(&mut input.key, read)?;
+        V::read_from_stream(&mut input.value, read)
+    }
 }
 
 impl<K, E> From<(K,E)> for LeafCell<K, E> {
@@ -33,6 +75,58 @@ pub struct Leaf<Key, Value> {
     capacity: usize,
     cells: Vec<LeafCell<Key, Value>>,
     next: Option<BPTreeNodeId>
+}
+
+impl<K,V> InStream for Leaf<K,V> 
+where K: InStream<Input=K> + Default + Clone, V: InStream<Input=V> + Default + Clone
+{
+    type Input = Self;
+
+    fn read_from_stream<R: std::io::Read + ?Sized>(input: &mut Self, read: &mut R) -> std::io::Result<()> 
+    {
+        input.capacity = DataStream::<u64>::read(read)? as usize;
+        input.cells = vec![LeafCell::default(); DataStream::<u64>::read(read)? as usize];
+        input.next = DataStream::<u64>::read(read).map(|u| match u {
+            0 => None,
+            id => Some(id)
+        })?;
+
+        for c in input.cells.iter_mut() {
+            LeafCell::<K,V>::read_from_stream(c, read)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<K,V> OutStream for Leaf<K, V>
+where K: OutStream<Output=K>, V: OutStream<Output=V>
+{
+    type Output = Self;
+
+    fn write_to_stream<W: std::io::Write + ?Sized>(output: &Self, writer: &mut W) -> std::io::Result<usize> {
+        let mut written = DataStream::<u64>::write(writer, output.capacity as u64)? +
+            DataStream::<u64>::write(writer, output.cells.len() as u64)? +
+            DataStream::<u64>::write(writer, output.next.unwrap_or(0))?;
+
+        for c in output.cells.iter() {
+            written += LeafCell::<K,V>::write_to_stream(c, writer)?;
+        }
+
+        Ok(written)
+    }
+
+    fn write_all_to_stream<W: std::io::Write + ?Sized>(input: &Self, writer: &mut W) -> std::io::Result<()> {
+        DataStream::<u64>::write_all(writer, input.capacity as u64)?;
+        DataStream::<u64>::write_all(writer, input.cells.len() as u64)?;
+        DataStream::<u64>::write_all(writer, input.next.unwrap_or(0))?;
+
+        for c in input.cells.iter() {
+            LeafCell::<K,V>::write_all_to_stream(c, writer)?;
+        }
+
+        Ok(())
+    }
 }
 
 impl<K, V> Leaf<K,V> 
@@ -136,7 +230,7 @@ where K: Copy + PartialEq + PartialOrd
     }
 
     /// Split the leaf into two leaves.
-    pub fn split<Nodes>(&mut self, nodes: &mut Nodes) -> Split<Nodes::Key>
+    pub fn split<Nodes>(&mut self, nodes: &Nodes) -> Split<Nodes::Key>
     where Nodes: BPTreeNodes<Key=K, Value=V>
     {
         let middle: usize = self.cells.len() / 2;

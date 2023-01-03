@@ -1,7 +1,7 @@
+#[derive(Debug)]
 pub enum BPTreeError {
-    NotABranch,
-    NotALeaf,
-    UnexistingNode,
+    BranchNotFound,
+    LeafNotFound,
     ExistingKey,
-    KeyNotFound,
+    KeyNotFound
 }

@@ -5,6 +5,6 @@ pub mod arena;
 pub mod io;
 pub mod object;
 pub mod index;
-//pub mod fixtures;
+pub mod fixtures;
 pub mod utils;
 

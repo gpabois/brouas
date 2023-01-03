@@ -1,7 +1,10 @@
-use std::{cell::RefCell, borrow::BorrowMut, borrow::Borrow, collections::BTreeMap, pin::Pin, ops::DerefMut};
+use std::{collections::BTreeMap, pin::Pin, rc::Rc, cell::RefCell};
+
+type FrozenValue<V> = Rc<RefCell<Pin<Box<V>>>>;
+type BaseFrozenBTreeMap<K,V> = RefCell<BTreeMap<K, FrozenValue<V>>>;
 
 pub struct FrozenBTreeMap<K,V>(
-    RefCell<BTreeMap<K, Pin<Box<V>>>>
+    BaseFrozenBTreeMap<K,V>
 );
 
 impl<K,V> Default for FrozenBTreeMap<K,V> {
@@ -14,26 +17,18 @@ impl<K,V> FrozenBTreeMap<K, V>
 where K: std::cmp::Ord
 {
     pub fn insert(&self, key: K, v: V) {
-        let pinned = Box::pin(v);
-        self.0.borrow_mut().insert(key, pinned);
+        let frozen = Rc::new(RefCell::new(Box::pin(v)));
+        self.0.borrow_mut().insert(key, frozen);
     }
 
     pub fn contains_key(&self, key: &K) -> bool {
         self.0.borrow().contains_key(key)
     }
 
-    pub fn get(&mut self, key: &K) -> Option<Pin<&V>> {
-        self.0.borrow()
+    pub fn get(&self, key: &K) -> Option<FrozenValue<V>> {
+        self.0
+        .borrow()
         .get(&key)
-        .as_deref()
-        .map(|p| p.as_ref())
-    }
-
-    pub fn get_mut(&mut self, key: &K) -> Option<Pin<&mut V>> {
-        self.0.borrow_mut()
-        .deref_mut()
-        .get_mut(&key)
-        .as_deref_mut()
-        .map(|p| p.as_mut())
+        .cloned()
     }
 }
