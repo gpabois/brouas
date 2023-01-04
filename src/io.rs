@@ -3,6 +3,7 @@ use std::{io::{Write, Read, BufWriter, Cursor, Seek}, marker::PhantomData, ops::
 use self::traits::{OutStream, InStream};
 
 pub mod traits;
+pub mod lsm;
 
 pub struct DataStream<T>(PhantomData<T>);
 
@@ -21,29 +22,29 @@ impl DataStream<u64> {
 }
 
 impl DataStream<u32> {
-    pub fn read<R: Read>(read: &mut R) -> std::io::Result<u32> {
+    pub fn read<R: Read + ?Sized>(read: &mut R) -> std::io::Result<u32> {
         read_u32(read)
     }
 
-    pub fn write<W: Write>(writer: &mut W, value: u32) -> std::io::Result<usize> {
+    pub fn write<W: Write + ?Sized>(writer: &mut W, value: u32) -> std::io::Result<usize> {
         writer.write(&value.to_ne_bytes())
     }
 
-    pub fn write_all<W: Write>(writer: &mut W, value: u32) -> std::io::Result<()> {
+    pub fn write_all<W: Write + ?Sized>(writer: &mut W, value: u32) -> std::io::Result<()> {
         writer.write_all(&value.to_ne_bytes())
     }
 }
 
 impl DataStream<u16> {
-    pub fn read<R: Read>(read: &mut R) -> std::io::Result<u16> {
+    pub fn read<R: Read + ?Sized>(read: &mut R) -> std::io::Result<u16> {
         read_u16(read)
     }
 
-    pub fn write<W: Write>(writer: &mut W, value: u16) -> std::io::Result<usize> {
+    pub fn write<W: Write + ?Sized>(writer: &mut W, value: u16) -> std::io::Result<usize> {
         writer.write(&value.to_ne_bytes())
     }
 
-    pub fn write_all<W: Write>(writer: &mut W, value: u16) -> std::io::Result<()> {
+    pub fn write_all<W: Write + ?Sized>(writer: &mut W, value: u16) -> std::io::Result<()> {
         writer.write_all(&value.to_ne_bytes())
     }
 }
@@ -52,11 +53,11 @@ impl DataStream<u8> {
     pub fn read<R: Read>(read: &mut R) -> std::io::Result<u8> {
         read_u8(read)
     }
-    pub fn write<W: Write>(writer: &mut W, value: u8) -> std::io::Result<usize> {
+    pub fn write<W: Write + ?Sized>(writer: &mut W, value: u8) -> std::io::Result<usize> {
         writer.write(&value.to_ne_bytes())
     }
 
-    pub fn write_all<W: Write>(writer: &mut W, value: u8) -> std::io::Result<()> {
+    pub fn write_all<W: Write + ?Sized>(writer: &mut W, value: u8) -> std::io::Result<()> {
         writer.write_all(&value.to_ne_bytes())
     }
 }
@@ -67,19 +68,19 @@ fn read_u64<R: Read + ?Sized>(read: &mut R) -> std::io::Result<u64> {
     Ok(u64::from_le_bytes(value))
 }
 
-fn read_u32<R: Read>(read: &mut R) -> std::io::Result<u32> {
+fn read_u32<R: Read + ?Sized>(read: &mut R) -> std::io::Result<u32> {
     let mut value: [u8; 4] = [0; 4];
     read.read_exact(&mut value)?;
     Ok(u32::from_le_bytes(value))
 }
 
-fn read_u16<R: Read>(read: &mut R) -> std::io::Result<u16> {
+fn read_u16<R: Read + ?Sized>(read: &mut R) -> std::io::Result<u16> {
     let mut value: [u8; 2] = [0; 2];
     read.read_exact(&mut value)?;
     Ok(u16::from_le_bytes(value))
 }
 
-fn read_u8<R: Read>(read: &mut R) -> std::io::Result<u8> {
+fn read_u8<R: Read + ?Sized>(read: &mut R) -> std::io::Result<u8> {
     let mut value: [u8; 1] = [0; 1];
     read.read_exact(&mut value)?;
     Ok(u8::from_le_bytes(value))
@@ -108,7 +109,6 @@ impl DerefMut for InMemory {
         self.0.get_mut()
     }
 }
-
 
 impl std::io::Write for InMemory 
 {
@@ -166,22 +166,19 @@ impl DerefMut for Data {
 
 impl Write for Data 
 {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> 
-    {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.0.extend_from_slice(buf);
         Ok(buf.len())
     }
 
-    fn flush(&mut self) -> std::io::Result<()> 
-    {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
 
 impl std::io::Read for Data 
 {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> 
-    {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let consumed: Vec<_> = self.0.drain(0..buf.len()).collect();
         buf[..consumed.len()].copy_from_slice(&consumed);
         Ok(consumed.len())

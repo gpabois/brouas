@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, ops::Deref};
 use crate::{io::{Data, traits::{OutStream, InStream}}, utils::Watcher};
-use super::{error::Error, result::Result, meta::ObjectMeta, io::traits::{ObjectRead, ObjectWrite}, ObjectId};
+use super::{error::Error, result::Result, meta::{ObjectMeta, ObjectRequirement}, io::traits::{ObjectRead, ObjectWrite}, ObjectId};
 
 pub struct ObjectBuffer {
     meta: ObjectMeta,
@@ -48,7 +48,7 @@ impl ObjectsBuffer {
         .filter(|kv| kv.1.is_modified())
         .map(|kv| {
            kv.1.done();
-           write.write_object(&kv.1.data, kv.1.meta)
+           write.write_object(&kv.1.data, kv.1.meta.clone())
         }).collect::<Result<Vec<_>>>()?;
 
         Ok(())
@@ -57,6 +57,21 @@ impl ObjectsBuffer {
     pub fn contains(&self, id: &ObjectId) -> bool {
         self.table.contains_key(id)
     }
+
+    pub fn clear(&mut self) {
+        self.table.clear()
+    }
+
+    pub fn cache_object<O>(&mut self, content: &O, meta: ObjectMeta) -> Result<()> 
+    where O: crate::io::traits::OutStream<Output=O> {
+        let oid = meta.get_id();
+        let mut data = Data::new();
+        // Write the rest of the object
+        O::write_all_to_stream(content, &mut data)?;
+        // Insert in the buffer
+        self.table.insert(oid, Watcher::wrap(ObjectBuffer { meta: meta, data: data }));
+        Ok(())
+    }
 }
 
 impl ObjectWrite for ObjectsBuffer {
@@ -64,19 +79,16 @@ impl ObjectWrite for ObjectsBuffer {
     where O: crate::io::traits::OutStream<Output=O> {
         let oid = meta.get_id();
         let mut data = Data::new();
-
         // Write the rest of the object
         O::write_all_to_stream(content, &mut data)?;
-        
         // Insert in the buffer
         self.table.insert(oid, Watcher::new(ObjectBuffer { meta: meta, data: data }));
-       
         Ok(())
     }
 }
 
 impl ObjectRead for ObjectsBuffer {
-    fn read_object<O>(&mut self, object: &mut O, meta: ObjectMeta) -> Result<()> 
+    fn read_object<O>(&mut self, object: &mut O, meta: ObjectRequirement) -> Result<()> 
     where O: crate::io::traits::InStream<Input=O>
     {
         let oid = meta.get_id();

@@ -13,6 +13,13 @@ pub trait OutStream
 pub trait InStream 
 {
     type Input;
-
     fn read_from_stream<R: Read + ?Sized>(input: &mut Self::Input, read: &mut R) -> std::io::Result<()>;
+}
+
+/// Writable stream
+pub trait Writable {
+    type Args;
+    type Write;
+
+    fn open_write(&mut self, args: Self::Args) -> std::io::Result<Self::Write>;
 }
