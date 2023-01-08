@@ -3,7 +3,6 @@ use std::{io::{Write, Read, BufWriter, Cursor, Seek}, marker::PhantomData, ops::
 use self::traits::{OutStream, InStream};
 
 pub mod traits;
-pub mod lsm;
 
 pub struct DataStream<T>(PhantomData<T>);
 

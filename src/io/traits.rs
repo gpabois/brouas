@@ -21,5 +21,6 @@ pub trait Writable {
     type Args;
     type Write;
 
-    fn open_write(&mut self, args: Self::Args) -> std::io::Result<Self::Write>;
+    // Open writable stream
+    fn openw(&mut self, args: Self::Args) -> std::io::Result<Self::Write>;
 }

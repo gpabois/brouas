@@ -30,6 +30,7 @@ impl PageNonce
     pub fn not_set() -> Self {
         PageNonce(0)
     }
+    
     pub fn new() -> Self {
         let mut rng = rand::thread_rng();
         Self(rng.gen())

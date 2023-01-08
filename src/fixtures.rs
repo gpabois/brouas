@@ -4,7 +4,7 @@ use rand::Rng;
 
 use crate::io::Data;
 
-pub mod bptree;
+//pub mod bptree;
 
 /// Create a random array of raw bytes.
 pub fn random_data(size: usize) -> Data {
