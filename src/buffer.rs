@@ -1,14 +1,23 @@
 use std::alloc::Layout;
 
 pub struct MemBlock {
+    pub id:   usize,
     pub size: usize,
     pub free: bool,
     pub next: *mut MemBlock
 }
 
 impl MemBlock {
-    pub unsafe fn get_block(block: *mut Self) -> *mut u8 {
-        block.offset(std::mem::size_of::<Self>() as isize) as *mut u8
+    pub unsafe fn get_base_unchecked<T>(&mut self) -> &mut T {
+        ((self as *mut Self).offset(std::mem::size_of::<Self>() as isize) as *mut T).as_mut().unwrap()
+    }
+
+    pub fn match_size<T>(&self) -> bool {
+        self.size == std::mem::size_of::<T>()
+    }
+
+    pub fn is_free(&self) -> bool {
+        return self.free
     }
 }
 
@@ -21,7 +30,7 @@ pub struct Buffer {
 pub struct MemBlockIterator(*mut MemBlock);
 
 impl Iterator for MemBlockIterator {
-    type Item = *mut MemBlock;
+    type Item = &'static mut MemBlock;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.0.is_null() {
@@ -31,7 +40,9 @@ impl Iterator for MemBlockIterator {
             unsafe {
                 self.0 = (*self.0).next as *mut MemBlock;
             }
-            return Some(blck);
+            unsafe {
+                return Some(blck.as_mut().unwrap());
+            }
         }
     }
 }
@@ -57,9 +68,17 @@ impl Buffer {
         }
     }
 
-    pub fn alloc<T>(&self, value: T) {
+    pub fn alloc<T>(&self, value: T) -> usize {
         let size = std::mem::size_of::<T>();
-        self.iter().find(|mem| (**mem).free && (**mem).size == size);
+
+        if let Some(block) = self.iter().find(|mem| mem.is_free() && mem.match_size::<T>()) {
+            unsafe {
+                *block.get_base_unchecked::<T>() = value;
+                block.id
+            }
+        } else {
+            
+        }
 
     }
 }
