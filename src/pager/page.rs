@@ -1,4 +1,6 @@
-use std::{ops::{Deref, DerefMut}, io::Cursor};
+use std::{ops::{Deref, DerefMut, Range}, io::{Cursor, Read}};
+
+use crate::buffer::BufferCell;
 
 /// Page types
 pub const ROOT: u8 = 0x1;
@@ -8,6 +10,7 @@ pub const BPTREE_BRANCH: u8 = 0x3;
 pub const STD_PAGE_SIZE: usize = 16_000;
 
 pub type BrouasPage = Page<STD_PAGE_SIZE>;
+pub type BrouasPageCell = BufferCell<BrouasPage>;
 
 pub type PageWriter<'a> = Cursor<&'a mut [u8]>;
 pub type PageReader<'a> = Cursor<&'a [u8]>;
@@ -30,6 +33,11 @@ impl<const SIZE: usize> DerefMut for Page<SIZE>
     }
 }
 
+const ID_RANGE: Range<usize> = 0..8;
+const TYPE_RANGE: Range<usize> = 8..9;
+const PARENT_RANGE: Range<usize> = 9..18;
+const RESERVED: usize = 18;
+
 impl<const SIZE: usize> Page<SIZE>
 {
     pub fn new(pid: u64, ptype: u8) -> Self {
@@ -39,36 +47,54 @@ impl<const SIZE: usize> Page<SIZE>
         page
     }
 
+    pub fn init(&mut self, pid: u64, ptype: u8) {
+        self.set_id(pid);
+        self.set_type(ptype)
+    }
+
+    pub fn read<R: Read>(&mut self, read: &mut R) -> std::io::Result<()> {
+        let mut page = Page([0; SIZE]);
+        read.read_exact(&mut page)
+    }
+
     pub fn set_id(&mut self, pid: u64) {
-        self.0[0..8].copy_from_slice(&pid.to_le_bytes());
+        self.0[ID_RANGE].copy_from_slice(&pid.to_le_bytes());
     }
     
     pub fn get_id(&self) -> u64 {
-        u64::from_le_bytes(self.0[0..3].try_into().unwrap())
+        u64::from_le_bytes(self.0[ID_RANGE].try_into().unwrap())
     }
 
     pub fn set_type(&mut self, ptype: u8) {
-        self.0[8] = ptype;
+        self.0[TYPE_RANGE].copy_from_slice(&u8::to_le_bytes(ptype))
     }
 
-    pub fn get_type(&self) -> u64 {
-        u64::from_le_bytes(self.0[4..5].try_into().unwrap())
+    pub fn get_type(&self) -> u8 {
+        u8::from_le_bytes(self.0[TYPE_RANGE].try_into().unwrap())
     }
 
     pub fn set_parent(&mut self, pid: u64) {
-        self.0[9..18].copy_from_slice(&pid.to_le_bytes())
+        self.0[PARENT_RANGE].copy_from_slice(&pid.to_le_bytes())
     }
 
     pub fn get_parent(&self) -> u64 {
-        u64::from_le_bytes(self.0[9..18].try_into().unwrap())
+        u64::from_le_bytes(self.0[PARENT_RANGE].try_into().unwrap())
+    }
+
+    pub fn deref_body(&self) -> &[u8] {
+        &self.0[RESERVED..]
+    }
+
+    pub fn deref_mut_body(&mut self) -> &mut [u8] {
+        &mut self.0[RESERVED..]
     }
 
     pub fn get_writer(&mut self) -> PageWriter<'_> {
-        PageWriter::new(&mut self.0[18..])
+        PageWriter::new(&mut self.0[RESERVED..])
     }
 
     pub fn get_reader(&self) -> PageReader<'_> {
-        PageReader::new(&self.0[18..])
+        PageReader::new(&self.0[RESERVED..])
     }
 }
 

@@ -1,6 +1,14 @@
-use std::ops::{Deref, DerefMut};
+use std::ops::{Deref, DerefMut, AddAssign};
 
-pub mod collections;
+#[derive(Default)]
+pub struct Counter(std::cell::RefCell<u64>);
+
+impl Counter {
+    pub fn inc(&self) -> u64 {
+        *self.0.borrow_mut().deref_mut() += 1;
+        *self.0.borrow_mut()
+    }
+}
 
 pub struct Watcher<T>{
     value: T,

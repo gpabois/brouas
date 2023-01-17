@@ -265,6 +265,20 @@ impl Buffer {
             )
         }
     }
+
+    pub fn alloc_uninit<T>(&self)  -> Result<BufferCell<T>> {
+        unsafe {
+            let block = if let Some(block) = self.find_free_block(std::mem::size_of::<T>()){
+                block
+            } else {
+                self.add_block_or_free_candidate(std::mem::size_of::<T>())?
+            };
+
+            Ok(
+                BufferCell::new(block)
+            )
+        }        
+    }
 }
 
 impl Drop for Buffer {
@@ -286,6 +300,10 @@ where T: 'static
 
     pub fn alloc(&self, value: T) -> Result<BufferCell<T>> {
         self.0.alloc(value)
+    }
+
+    pub fn alloc_uninit(&self) -> Result<BufferCell<T>> {
+        self.0.alloc_uninit::<T>()
     }
 
     pub fn iter(&self) -> BufferPoolIterator<T> {
