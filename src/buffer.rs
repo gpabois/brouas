@@ -24,6 +24,7 @@ impl<T> Deref for BufferCell<T> {
 impl<T> DerefMut for BufferCell<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe {
+            (*self.block).modified = true;
             BufferBlock::leak_value_unchecked::<T>(self.block).as_mut().unwrap()
         }
     }
@@ -46,6 +47,24 @@ impl<T> BufferCell<T> {
             (*self.block).rc
         }
     }
+
+    pub fn raise_modification_flag(&mut self) {
+        unsafe {
+            (*self.block).modified = true;
+        }       
+    }
+    /// Remove the modification flag
+    pub fn drop_modification_flag(&mut self) {
+        unsafe {
+            (*self.block).modified = false;
+        }
+    }
+
+    pub fn is_modified(&self) -> bool {
+        unsafe {
+            (*self.block).is_modified()
+        }
+    }
 }
 
 impl<T> Drop for BufferCell<T> {
@@ -63,11 +82,12 @@ impl<T> Clone for BufferCell<T> {
 }
 
 pub struct BufferBlock {
-    pub size: usize,
-    pub free: bool,
-    pub rc: usize,
-    pub lru: usize,
-    pub next: *mut BufferBlock
+    pub size:       usize,
+    pub free:       bool,
+    pub rc:         usize,
+    pub lru:        usize,
+    pub modified:   bool,
+    pub next:       *mut BufferBlock
 }
 
 impl BufferBlock {
@@ -91,6 +111,10 @@ impl BufferBlock {
 
     pub fn lru(&self) -> usize {
         return self.lru
+    }
+
+    pub fn is_modified(&self) -> bool {
+        return self.modified
     }
 
     pub fn is_free(&self) -> bool {
@@ -164,7 +188,9 @@ impl Buffer {
         .filter(|ptr| {
             unsafe {
                 let block_ref = ptr.as_ref().unwrap();
-                block_ref.is_unshared() && block_ref.match_size(size)
+                block_ref.is_unshared() 
+                && block_ref.match_size(size) 
+                && !block_ref.is_modified()
             }
         }).collect();
 
@@ -207,6 +233,7 @@ impl Buffer {
                 free: false,
                 rc: 0,
                 lru: 0,
+                modified: false,
                 next: std::ptr::null_mut(),
             };      
 
@@ -233,7 +260,9 @@ impl Buffer {
             };
 
             BufferBlock::set_value_unchecked(block, value);
-            Ok(BufferCell::new(block))
+            Ok(
+                BufferCell::new(block)
+            )
         }
     }
 }
@@ -243,49 +272,6 @@ impl Drop for Buffer {
         unsafe {
             std::alloc::dealloc(self.base, self.layout);
         }
-    }
-}
-
-pub struct LRU<T> {
-    counter: std::cell::RefCell<usize>,
-    value: T
-}
-
-impl<T> LRU<T> {
-    pub fn new(value: T) -> Self {
-        Self {
-            counter: Default::default(),
-            value
-        }
-    }
-}
-
-impl<T> PartialEq for LRU<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.counter == other.counter
-    }
-}
-
-impl<T> PartialOrd for LRU<T> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.counter.partial_cmp(&other.counter)
-    }
-}
-
-impl<T> Deref for LRU<T>
-{
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        *self.counter.borrow_mut().deref_mut() += 1;
-        &self.value
-    }
-}
-
-impl<T> DerefMut for LRU<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        *self.counter.borrow_mut().deref_mut() += 1;
-        &mut self.value
     }
 }
 
