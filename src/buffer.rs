@@ -1,5 +1,6 @@
 use std::{alloc::Layout, ops::{Deref, DerefMut}, marker::PhantomData};
 
+#[derive(Debug)]
 pub enum Error {
     Full
 }

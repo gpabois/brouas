@@ -2,6 +2,8 @@ use std::{ops::{Deref, DerefMut, Range}, io::{Cursor, Read}};
 
 use crate::buffer::BufferCell;
 
+use super::FREE_PAGE;
+
 /// Page types
 pub const ROOT: u8 = 0x1;
 pub const BPTREE_LEAF: u8 = 0x2;
@@ -55,6 +57,10 @@ impl<const SIZE: usize> Page<SIZE>
     pub fn read<R: Read>(&mut self, read: &mut R) -> std::io::Result<()> {
         let mut page = Page([0; SIZE]);
         read.read_exact(&mut page)
+    }
+
+    pub fn drop(&mut self) {
+        self.set_type(FREE_PAGE)
     }
 
     pub fn set_id(&mut self, pid: u64) {

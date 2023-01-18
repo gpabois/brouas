@@ -9,6 +9,7 @@ pub mod overflow;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+#[derive(Debug)]
 pub enum Error {
     BufferError(crate::buffer::Error),
     IoError(std::io::Error)
