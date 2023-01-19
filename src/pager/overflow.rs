@@ -296,6 +296,7 @@ impl<'a, Pager> BufRead for VarReader<'a, Pager>
 where Pager: crate::pager::traits::Pager {
     fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
         copy_to_buffer(self.area, &mut self.var_cursor, &mut self.buffer).expect("Buffer copy error");
+        self.buf_cursor = 0;
         Ok(&self.buffer)
     }
 

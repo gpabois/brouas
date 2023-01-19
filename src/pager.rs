@@ -108,3 +108,37 @@ where Stream: Read + Write + Seek
         self.pool.iter().filter(|cell| cell.is_modified())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::{Write, Read};
+
+    use crate::{io::{InMemory, Data}, fixtures};
+
+    use super::{traits::Pager, PageId};
+
+
+    #[test]
+    fn test_pager() -> super::Result<()> {
+        let pager = super::Pager::new(InMemory::new(), 10);
+        
+        let data_size: usize = 1000;
+        let random = fixtures::random_data(data_size);
+        
+        let pid: PageId;
+        {
+            let mut page = pager.new_page(0x10)?;
+            pid = page.get_id();
+            page.get_writer().write(&random)?;
+        }
+
+        let mut stored = Data::with_size(data_size);
+        let page = pager.get_page(pid)?;
+        page.get_reader().read(&mut stored)?;
+        
+        assert_eq!(random, stored);
+
+
+        Ok(())
+    }
+}

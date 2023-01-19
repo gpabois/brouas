@@ -13,6 +13,10 @@ pub fn random_data(size: usize) -> Data {
     data
 }
 
+pub fn randomise(data: &mut [u8]) {
+    OsRng.fill_bytes(data);
+}
+
 pub fn random_u64(min: u64, max: u64) -> u64 {
     let mut rng = rand::thread_rng();
     rng.gen_range(min..max)
