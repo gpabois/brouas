@@ -181,7 +181,7 @@ impl Buffer {
         unsafe {
             let base = std::alloc::alloc_zeroed(layout) as *mut BufferBlock;
             let tail = std::cell::RefCell::new(base);
-            let end = base.offset(size as isize);    
+            let end = (base as *mut u8).offset(size as isize) as *mut BufferBlock;    
             Self { layout, base, last: std::cell::RefCell::new(std::ptr::null_mut()), tail, end, block_count: 0 }       
         }
     }
@@ -197,7 +197,7 @@ impl Buffer {
     /// Find a candidate block (unshared and which lru is low) to reallocate
     fn find_candidate_block(&self, size: usize) -> Option<*mut BufferBlock>
     {
-        let mut blocks: Vec<_> = self.iter_blocks()
+        self.iter_blocks()
         .filter(|ptr| {
             unsafe {
                 let block_ref = ptr.as_ref().unwrap();
@@ -205,16 +205,12 @@ impl Buffer {
                 && block_ref.match_size(size) 
                 && !block_ref.is_modified()
             }
-        }).collect();
-
-        blocks.sort_by_key(|ptr| {
+        }).min_by_key(|ptr| {
             unsafe {
                 let block_ref = ptr.as_ref().unwrap();
                 block_ref.lru()
             }
-        });
-
-        blocks.first().copied()
+        })
     }
 
     /// Find a free block
@@ -257,10 +253,12 @@ impl Buffer {
     {       
         match self.push_block(size) {
             Err(Error::NotEnoughSpace) => {
+                
                 if let Some(block) = self.find_candidate_block(size) 
                 {
                     return Ok(block);
                 }
+                
                 return Err(Error::NotEnoughSpace);
             },
             other => other
@@ -357,11 +355,13 @@ mod tests {
 
     #[test]
     fn test_buffer_pool() -> super::Result<()> {
-        let pool = BufferPool::<[u8; 16_000]>::new(100);
+        let capacity: usize = 10_000;
+        let pool = BufferPool::<[u8; 16_000]>::new(capacity);
 
-        for _ in 0..100 {
+        for _ in 0..capacity {
             let mut block = pool.alloc_uninit()?;
             fixtures::randomise(block.deref_mut());
+            block.drop_modification_flag();
         }
 
         Ok(())
