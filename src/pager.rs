@@ -1,4 +1,4 @@
-use std::{io::{Read, Write, Seek, SeekFrom}, ops::DerefMut};
+use std::{io::{Read, Write, Seek, SeekFrom}, ops::DerefMut, borrow::BorrowMut};
 
 use crate::{buffer::{BufferPool, BufferCell}, utils::Counter};
 
@@ -37,8 +37,10 @@ pub mod traits {
         fn new_page(&self, ptype: u8)    -> Result<BrouasPageCell>;
         fn get_page(&self, pid: PageId)  -> Result<BrouasPageCell>;
         fn drop_page(&self, pid: PageId) -> Result<()>;
+        fn flush(&self) -> Result<()>;
     }
 }
+pub const RESERVED: usize = 10;
 
 pub const FREE_PAGE: u8 = 0x00;
 pub const OVERFLOW_PAGE: u8 = 0xFF;
@@ -78,8 +80,23 @@ where Stream: Read + Write + Seek {
         }
     }
 
+    /// Drop the page
     fn drop_page(&self, pid: PageId) -> Result<()> {
         self.get_page(pid)?.set_type(FREE_PAGE);
+        Ok(())
+    }
+
+    fn flush(&self) -> Result<()> {
+        for mut page in self.iter_upserted_pages() {
+            let offset = (RESERVED + BrouasPage::get_size() * (page.get_id() as usize)) as u64;
+            self.io.borrow_mut().seek(SeekFrom::Start(offset))?;
+            std::io::copy(
+                &mut page.get_reader(),
+                self.io.borrow_mut().deref_mut()
+            )?;
+            page.drop_modification_flag();
+        }
+
         Ok(())
     }
 }

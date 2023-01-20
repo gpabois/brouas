@@ -1,51 +1,50 @@
-use std::{ops::{Deref, DerefMut, Range}, io::{Cursor, Write, BufRead, Read}, cmp::min};
+use std::{ops::{Deref, DerefMut, Range}, io::{Cursor, Write, BufRead, Read}, cmp::min, borrow::{Borrow, BorrowMut}};
 
 use itertools::Itertools;
 
 use crate::pager::PageId;
-use super::{page::{BrouasPage, PageWriter, PageReader, BrouasPageCell}, OVERFLOW_PAGE};
+use super::{page::{BrouasPage, PageWriter, PageReader, BrouasPageCell}, OVERFLOW_PAGE, Pager};
 
 #[derive(Clone)]
 pub struct OverflowPage<P>(P)
 where P: Deref<Target=BrouasPage> + DerefMut<Target=BrouasPage>;
 
-const SIZE_RANGE: Range<usize> = 0..2;
-const NEXT_RANGE: Range<usize> = 2..12;
-const RESERVED: usize = 12;
+const OV_SIZE: Range<usize> = 0..2;
+const OV_NEXT: Range<usize> = 2..12;
+const OV_RESERVED: usize = 12;
 
 impl<P> OverflowPage<P> 
-where P: Deref<Target=BrouasPage> + DerefMut<Target=BrouasPage>
-{
+where P: Deref<Target=BrouasPage> + DerefMut<Target=BrouasPage> {
     pub fn set_size(&mut self, size: u16) {
-        self.0.deref_mut_body()[SIZE_RANGE].copy_from_slice(&size.to_le_bytes());
+        self.0.deref_mut_body()[OV_SIZE].copy_from_slice(&size.to_le_bytes());
     }
 
     pub fn get_size(&mut self) -> u16 {
-        u16::from_le_bytes(self.0.deref_body()[SIZE_RANGE].try_into().unwrap())
+        u16::from_le_bytes(self.0.deref_body()[OV_SIZE].try_into().unwrap())
     }
 
     pub fn set_next(&mut self, next: PageId) {
-        self.0.deref_mut_body()[NEXT_RANGE].copy_from_slice(&next.to_le_bytes());
+        self.0.deref_mut_body()[OV_NEXT].copy_from_slice(&next.to_le_bytes());
     }
 
     pub fn get_next(&self) -> PageId {
-        u64::from_le_bytes(self.0.deref_body()[NEXT_RANGE].try_into().unwrap())
+        u64::from_le_bytes(self.0.deref_body()[OV_NEXT].try_into().unwrap())
     }
 
     pub fn get_writer(&mut self) -> PageWriter<'_> {
-        PageWriter::new(&mut self.0.deref_mut_body()[RESERVED..])
+        PageWriter::new(&mut self.0.deref_mut_body()[OV_RESERVED..])
     }
 
     pub fn get_reader(&self) -> PageReader<'_> {
-        PageReader::new(&self.0.deref_body()[RESERVED..])
+        PageReader::new(&self.0.deref_body()[OV_RESERVED..])
     }
 
     pub fn deref_mut_body(&mut self) -> &mut [u8] {
-        &mut self.0.deref_mut_body()[RESERVED..]
+        &mut self.0.deref_mut_body()[OV_RESERVED..]
     }
 
     pub fn deref_body(&self) -> &[u8] {
-        &self.0.deref_body()[RESERVED..]
+        &self.0.deref_body()[OV_RESERVED..]
     }
 
     pub fn get_id(&self) -> PageId {
@@ -58,13 +57,12 @@ where P: Deref<Target=BrouasPage> + DerefMut<Target=BrouasPage>
 }
 
 /// Ranges for VAR 
-const NEXT: Range<usize> = 0..8;
-const IN_SIZE_RANGE: Range<usize> = 8..10;
-const WHOLE_SIZE_RANGE: Range<usize> = 10..18;
+const AREA_NEXT: Range<usize> = 0..8;
+const AREA_IN_SIZE: Range<usize> = 8..10;
+const AREA_SIZE: Range<usize> = 10..18;
 const AREA_RESERVED: usize = 18;
 
-pub fn new_overflow_page(pager: &impl crate::pager::traits::Pager) -> crate::pager::Result<OverflowPage<BrouasPageCell>>
-{
+fn new_overflow_page(pager: &impl crate::pager::traits::Pager) -> crate::pager::Result<OverflowPage<BrouasPageCell>> {
     Ok(
         OverflowPage(
             pager.new_page(OVERFLOW_PAGE)?
@@ -76,8 +74,7 @@ struct OverlowPageIterator<'a, Pager>(PageId, &'a Pager)
     where Pager: crate::pager::traits::Pager;
 
 impl<'a, Pager> Iterator for OverlowPageIterator<'a, Pager>
-where Pager: crate::pager::traits::Pager
-{
+where Pager: crate::pager::traits::Pager {
     type Item = OverflowPage<BrouasPageCell>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -91,30 +88,29 @@ where Pager: crate::pager::traits::Pager
     }
 }
 
-pub fn drop_pages<It>(overflow_pages: &mut It)
-where It: Iterator<Item=OverflowPage<BrouasPageCell>>
-{
+fn drop_pages<It>(overflow_pages: &mut It)
+where It: Iterator<Item=OverflowPage<BrouasPageCell>> {
     overflow_pages.for_each(|mut opg| opg.drop());
 }
 
 /// Write variable data in the area, and overflow pages 
-pub fn write_var<Pager>(
-    data: impl Deref<Target=[u8]>, 
-    mut to: impl DerefMut<Target=[u8]>, 
-    pager: &mut Pager
+pub fn set_var<Pager>(
+    data: &[u8], 
+    to: &mut [u8], 
+    pager: &Pager
 ) -> crate::pager::Result<()> 
 where Pager: crate::pager::traits::Pager {
     // We can fit everything in the area
     // We only need 8 + 2 bytes
     if data.len() <= to.len() - 2 {
-        to[NEXT].copy_from_slice(&0u64.to_le_bytes());
-        to[IN_SIZE_RANGE].copy_from_slice(&(data.len() as u16).to_le_bytes());
+        to[AREA_NEXT].copy_from_slice(&0u64.to_le_bytes());
+        to[AREA_IN_SIZE].copy_from_slice(&(data.len() as u16).to_le_bytes());
         let mut to_cursor = Cursor::new(&mut to[10..]);
         to_cursor.write_all(&data)?;
     }
     // We cannot fit everything, so we write overflow pages
     else {
-        let next = PageId::from_le_bytes(to[NEXT].try_into().unwrap());
+        let next = PageId::from_le_bytes(to[AREA_NEXT].try_into().unwrap());
         let mut data_cursor = Cursor::new(data.deref());
         let in_page_size = (data.len() - AREA_RESERVED) as u16;
         let whole_size: u64 = data.len() as u64;
@@ -152,13 +148,110 @@ where Pager: crate::pager::traits::Pager {
         drop_pages(&mut opg_it);
 
         // Write var area header
-        to[NEXT].copy_from_slice(&head.unwrap().get_id().to_le_bytes());
-        to[IN_SIZE_RANGE].copy_from_slice(&in_page_size.to_le_bytes());
-        to[WHOLE_SIZE_RANGE].copy_from_slice(&whole_size.to_le_bytes());
+        to[AREA_NEXT].copy_from_slice(&head.unwrap().get_id().to_le_bytes());
+        to[AREA_IN_SIZE].copy_from_slice(&in_page_size.to_le_bytes());
+        to[AREA_SIZE].copy_from_slice(&whole_size.to_le_bytes());
     }
 
     Ok(())
 }
+
+
+pub struct Source<T>(T);
+
+impl<T> Source<T> 
+where T: Borrow<[u8]>
+{
+    pub fn get_next(&self) -> PageId {
+        PageId::from_le_bytes(self.0.borrow()[AREA_NEXT].try_into().unwrap())
+    }
+
+    pub fn in_size(&self) -> u16 {
+        u16::from_le_bytes(self.0.borrow()[AREA_IN_SIZE].try_into().unwrap())       
+    }
+
+    pub fn size(&self) -> u64 {
+        u64::from_le_bytes(self.0.borrow()[AREA_SIZE].try_into().unwrap())       
+    }
+
+    pub fn deref_body(&self) -> &[u8] {
+        &self.0.borrow()[AREA_RESERVED..]
+    }
+}
+
+impl<T> Source<T>
+where T: BorrowMut<[u8]> {
+    pub fn set_next(&mut self, pid: PageId) {
+        self.0.borrow_mut()[AREA_NEXT].copy_from_slice(&pid.to_le_bytes());
+    }
+
+    pub fn set_in_size(&mut self, size: u16) {
+        self.0.borrow_mut()[AREA_IN_SIZE].copy_from_slice(&size.to_le_bytes());     
+    }
+
+    pub fn set_size(&mut self, size: u64) {
+        self.0.borrow_mut()[AREA_SIZE].copy_from_slice(&size.to_le_bytes());       
+    }
+
+    pub fn deref_mut_body(&mut self) -> &[u8] {
+        &mut self.0.borrow_mut()[AREA_RESERVED..]
+    }
+}
+
+pub enum Section<T> {
+    Page(OverflowPage<BrouasPageCell>),
+    Source(Source<T>)
+}
+
+impl<T> Section<T>
+where T: Borrow<[u8]> {
+    pub fn get_next(&self) -> PageId {
+        match self {
+            Section::Page(p) => p.get_next(),
+            Section::Source(src) => src.borrow().get_next(),
+        }
+    }
+} 
+
+pub struct SectionIterator<T>(Section<T>);
+
+impl<T> Iterator for SectionIterator<T>
+where T: Borrow<T> {
+    type Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        todo!()
+    }
+}
+
+
+pub struct VarWriter<'a, Pager>
+where Pager: crate::pager::traits::Pager {
+    area: &'a mut [u8],
+    buffer: [u8; 1000],
+    cursor: usize,
+    current: State,
+    pager: &'a Pager
+}
+
+impl<'a, Pager> Write for VarWriter<'a, Pager> 
+where Pager: crate::pager::traits::Pager
+{
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if self.cursor >= self.buffer.len() {
+            self.flush()?;
+        }
+
+        let rem = self.buffer.len() - self.cursor;
+        return Ok(rem)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        let buf = &self.buffer[..self.cursor];
+    }
+}
+
+
 
 pub struct VarCursor<'a, Pager> 
 where Pager: crate::pager::traits::Pager
@@ -208,9 +301,9 @@ where Pager: crate::pager::traits::Pager {
 impl<'a, Pager> VarCursor<'a, Pager> 
 where Pager: crate::pager::traits::Pager {
     pub fn new(area: &[u8], pager: &'a Pager) -> Self {
-        let whole_size = u64::from_le_bytes(area[WHOLE_SIZE_RANGE].try_into().unwrap()) as usize;
-        let in_page_size = u16::from_le_bytes(area[IN_SIZE_RANGE].try_into().unwrap()) as usize;
-        let next = u64::from_le_bytes(area[NEXT].try_into().unwrap());
+        let whole_size = u64::from_le_bytes(area[AREA_SIZE].try_into().unwrap()) as usize;
+        let in_page_size = u16::from_le_bytes(area[AREA_IN_SIZE].try_into().unwrap()) as usize;
+        let next = u64::from_le_bytes(area[AREA_NEXT].try_into().unwrap());
         let current = 0;
 
         Self {
@@ -282,6 +375,19 @@ where Pager: crate::pager::traits::Pager
     var_cursor: VarCursor<'a, Pager>
 }
 
+impl<'a, Pager> VarReader<'a, Pager>
+where Pager: crate::pager::traits::Pager
+{
+    pub fn new(area: &'a [u8], pager: &'a Pager) -> Self {
+        Self {
+            area,
+            buffer: [0; 1000],
+            buf_cursor: 0,
+            var_cursor: VarCursor::new(area, pager)
+        }
+    }
+}
+
 impl<'a, Pager> Read for VarReader<'a, Pager>
 where Pager: crate::pager::traits::Pager {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
@@ -302,5 +408,26 @@ where Pager: crate::pager::traits::Pager {
 
     fn consume(&mut self, amt: usize) {
         self.buf_cursor += amt;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{io::InMemory, pager::Pager, fixtures};
+
+    #[test]
+    fn test_var() -> crate::pager::Result<()>
+    {
+        let random = fixtures::random_data(100_000);
+        let pager = Pager::new(InMemory::new(), 200);
+        let mut fixed: [u8; 100] = [0; 100];
+
+        super::set_var(
+            &random, 
+            &mut fixed, 
+            &pager
+        )?;
+
+        Ok(())
     }
 }

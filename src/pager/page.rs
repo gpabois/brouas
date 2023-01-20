@@ -102,6 +102,10 @@ impl<const SIZE: usize> Page<SIZE>
     pub fn get_reader(&self) -> PageReader<'_> {
         PageReader::new(&self.0[RESERVED..])
     }
+
+    pub fn get_size() -> usize {
+        SIZE
+    }
 }
 
 
