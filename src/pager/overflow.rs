@@ -213,14 +213,23 @@ where T: Borrow<[u8]> {
     }
 } 
 
-pub struct SectionIterator<T>(Section<T>);
+/// 
+pub struct SectionIterator<'a, T, Pager>(Section<T>, &'a Pager)
+where Pager: crate::pager::traits::Pager;
 
-impl<T> Iterator for SectionIterator<T>
-where T: Borrow<T> {
-    type Item;
+impl<'a, T, Pager> Iterator for SectionIterator<'a, T, Pager>
+where T: Borrow<[u8]>, Pager: crate::pager::traits::Pager
+{
+    type Item = ();
 
     fn next(&mut self) -> Option<Self::Item> {
-        todo!()
+        if self.0.get_next() == 0 {
+            return None
+        }
+        
+        let page = self.1.get_page(self.0.get_next()).ok()?;
+        self.0 = Section::<T>::Page(OverflowPage(page));
+        Some(())
     }
 }
 
