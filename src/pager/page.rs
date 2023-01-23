@@ -2,7 +2,7 @@ use std::{ops::{Deref, DerefMut, Range}, io::{Cursor, Read}};
 
 use crate::buffer::BufferCell;
 
-use super::FREE_PAGE;
+use super::{FREE_PAGE, PageId};
 
 /// Page types
 pub const ROOT: u8 = 0x1;
@@ -105,6 +105,30 @@ impl<const SIZE: usize> Page<SIZE>
 
     pub fn get_size() -> usize {
         SIZE
+    }
+}
+
+#[derive(Clone)]
+pub struct PageSection(BrouasPageCell, Range<usize>);
+
+impl PageSection {
+    pub fn get_page(&self) -> &BrouasPageCell {
+        &self.0
+    }
+}
+
+impl Deref for PageSection {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0.deref_body()[self.1.clone()]
+    }
+}
+
+impl DerefMut for PageSection {
+
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0.deref_mut_body()[self.1.clone()]
     }
 }
 
