@@ -12,14 +12,14 @@ pub struct BufferCell<'a, T: ?Sized> {
     _pht: std::marker::PhantomData<&'a T>
 }
 
-impl<'a, T> Borrow<T> for BufferCell<'a, T> {
-    fn borrow(&self) -> &'a T {
+impl<'a, T> AsRef<T> for BufferCell<'a, T> {
+    fn as_ref(&self) -> &'a T {
         self.deref()
     }
 }
 
-impl<'a, T> BorrowMut<T> for BufferCell<'a, T> {
-    fn borrow_mut(&mut self) -> &'a mut T {
+impl<'a, T> AsMut<T> for BufferCell<'a, T> {
+    fn as_mut(&mut self) -> &'a mut T {
         self.deref_mut()
     }
 }

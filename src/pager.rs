@@ -5,7 +5,7 @@ use crate::{buffer::{BufferPool}, utils::Counter};
 use self::page::{BufPage, Page};
 
 pub mod page;
-pub mod overflow;
+// pub mod overflow;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -69,16 +69,16 @@ where Stream: Read + Write + Seek {
     type Page = BufPage<'Buffer>;
     
     /// Create a new page
-    fn new_page(&'Buffer self, ptype: u8) -> Result<Self::Page> 
+    fn new_page(&self, ptype: u8) -> Result<Self::Page> 
     {
         let pid = self.counter.inc();
-        let area = self.pool.alloc_uninit()?;
+        let mut area = self.pool.alloc_uninit()?;
         let page = Page::new(pid, ptype, area);
         Ok(page)
     }
 
     /// Get a page by its index
-    fn get_page(&'Buffer self, index: PageId) -> Result<Self::Page> {
+    fn get_page(&self, index: PageId) -> Result<Self::Page> {
         // We check if the page is already stored in memory
         if let Some(page) = self.pool.iter().map(Page::load).find(|cell| cell.get_id() == index)
         {
