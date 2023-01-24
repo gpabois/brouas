@@ -1,4 +1,4 @@
-use std::{alloc::Layout, ops::{Deref, DerefMut}, marker::PhantomData};
+use std::{alloc::Layout, ops::{Deref, DerefMut}, marker::PhantomData, borrow::{Borrow, BorrowMut}};
 
 #[derive(Debug)]
 pub enum Error {
@@ -7,23 +7,35 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-pub struct BufferCell<T> {
+pub struct BufferCell<'a, T: ?Sized> {
     block: *mut BufferBlock,
-    _phantom: std::marker::PhantomData<T>
+    _pht: std::marker::PhantomData<&'a T>
 }
 
-impl<T> Deref for BufferCell<T> {
+impl<'a, T> Borrow<T> for BufferCell<'a, T> {
+    fn borrow(&self) -> &'a T {
+        self.deref()
+    }
+}
+
+impl<'a, T> BorrowMut<T> for BufferCell<'a, T> {
+    fn borrow_mut(&mut self) -> &'a mut T {
+        self.deref_mut()
+    }
+}
+
+impl<'a, T> Deref for BufferCell<'a, T> {
     type Target = T;
 
-    fn deref(&self) -> &Self::Target {
+    fn deref(&self) -> &'a Self::Target {
         unsafe {
             BufferBlock::leak_value_unchecked::<T>(self.block).as_ref().unwrap()
         }
     }
 }
 
-impl<T> DerefMut for BufferCell<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
+impl<'a, T> DerefMut for BufferCell<'a, T> {
+    fn deref_mut(&mut self) -> &'a mut Self::Target {
         unsafe {
             (*self.block).modified = true;
             BufferBlock::leak_value_unchecked::<T>(self.block).as_mut().unwrap()
@@ -31,7 +43,7 @@ impl<T> DerefMut for BufferCell<T> {
     }
 }
 
-impl<T> BufferCell<T> 
+impl<'a, T> BufferCell<'a, T> 
 {
     pub fn new(block: *mut BufferBlock) -> Self {
         unsafe {
@@ -40,7 +52,7 @@ impl<T> BufferCell<T>
 
         Self {
             block,
-            _phantom: Default::default()
+            _pht: Default::default()
         }
     }
 
@@ -69,7 +81,7 @@ impl<T> BufferCell<T>
     }
 }
 
-impl<T> Drop for BufferCell<T> {
+impl<'a, T: ?Sized> Drop for BufferCell<'a, T> {
     fn drop(&mut self) {
         unsafe {
             (*self.block).rc -= 1;
@@ -77,7 +89,7 @@ impl<T> Drop for BufferCell<T> {
     }
 }
 
-impl<T> Clone for BufferCell<T> {
+impl<'a, T> Clone for BufferCell<'a, T> {
     fn clone(&self) -> Self {
         Self::new(self.block)
     }
@@ -320,10 +332,10 @@ where T: 'static
     }
 }
 
-pub struct BufferPoolIterator<T>(BufferBlockIterator, std::marker::PhantomData<T>);
+pub struct BufferPoolIterator<'a, T>(BufferBlockIterator, std::marker::PhantomData<&'a T>);
 
-impl<T> Iterator for BufferPoolIterator<T> {
-    type Item = BufferCell<T>;
+impl<'a, T> Iterator for BufferPoolIterator<'a, T> {
+    type Item = BufferCell<'a, T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(block) = self.0.next() {

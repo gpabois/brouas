@@ -1,8 +1,8 @@
-use std::{io::{Read, Write, Seek, SeekFrom}, ops::DerefMut, borrow::BorrowMut};
+use std::{io::{Read, Write, Seek, SeekFrom}, ops::DerefMut};
 
-use crate::{buffer::{BufferPool, BufferCell}, utils::Counter};
+use crate::{buffer::{BufferPool}, utils::Counter};
 
-use self::page::{BrouasPage};
+use self::page::{BufPage, Page};
 
 pub mod page;
 pub mod overflow;
@@ -13,6 +13,15 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     BufferError(crate::buffer::Error),
     IoError(std::io::Error)
+}
+
+impl Into<std::io::Error> for Error {
+    fn into(self) -> std::io::Error {
+        match self {
+            Error::BufferError(err) => std::io::Error::new(std::io::ErrorKind::OutOfMemory, format!("memory buffer error: {:?}", err)),
+            Error::IoError(err) => err,
+        }
+    }
 }
 
 impl From<crate::buffer::Error> for Error {
@@ -30,12 +39,13 @@ impl From<std::io::Error> for Error {
 pub type PageId = u64;
 
 pub mod traits {
-    use super::page::BrouasPageCell;
     use super::{Result, PageId};
 
     pub trait Pager {
-        fn new_page(&self, ptype: u8)    -> Result<BrouasPageCell>;
-        fn get_page(&self, pid: PageId)  -> Result<BrouasPageCell>;
+        type Page;
+        
+        fn new_page(&self, ptype: u8)    -> Result<Self::Page>;
+        fn get_page(&self, pid: PageId)  -> Result<Self::Page>;
         fn drop_page(&self, pid: PageId) -> Result<()>;
         fn flush(&self) -> Result<()>;
     }
@@ -45,29 +55,32 @@ pub const RESERVED: usize = 10;
 pub const FREE_PAGE: u8 = 0x00;
 pub const OVERFLOW_PAGE: u8 = 0xFF;
 
-pub struct Pager<Stream>
+pub struct Pager<'Buffer, Stream>
 {
-    pool: BufferPool<BrouasPage>,
+    pool: BufferPool<[u8; 16000]>,
     io: std::cell::RefCell<Stream>,
-    counter: Counter
+    counter: Counter,
+    _pht: std::marker::PhantomData<&'Buffer ()>
 }
 
-impl<Stream> self::traits::Pager for Pager<Stream>
+impl<'Buffer, Stream> self::traits::Pager for Pager<'Buffer, Stream>
 where Stream: Read + Write + Seek {
 
+    type Page = BufPage<'Buffer>;
+    
     /// Create a new page
-    fn new_page(&self, ptype: u8) -> Result<BufferCell<BrouasPage>> 
+    fn new_page(&'Buffer self, ptype: u8) -> Result<Self::Page> 
     {
         let pid = self.counter.inc();
-        let mut page = self.pool.alloc_uninit()?;
-        page.init(pid, ptype);
+        let area = self.pool.alloc_uninit()?;
+        let page = Page::new(pid, ptype, area);
         Ok(page)
     }
 
     /// Get a page by its index
-    fn get_page(&self, index: PageId) -> Result<BufferCell<BrouasPage>> {
+    fn get_page(&'Buffer self, index: PageId) -> Result<Self::Page> {
         // We check if the page is already stored in memory
-        if let Some(page) = self.pool.iter().find(|cell| cell.get_id() == index)
+        if let Some(page) = self.pool.iter().map(Page::load).find(|cell| cell.get_id() == index)
         {
             Ok(page)
         } 
@@ -88,7 +101,7 @@ where Stream: Read + Write + Seek {
 
     fn flush(&self) -> Result<()> {
         for mut page in self.iter_upserted_pages() {
-            let offset = (RESERVED + BrouasPage::get_size() * (page.get_id() as usize)) as u64;
+            let offset = (RESERVED + page.get_size() * (page.get_id() as usize)) as u64;
             self.io.borrow_mut().seek(SeekFrom::Start(offset))?;
             std::io::copy(
                 &mut page.get_reader(),
@@ -101,7 +114,7 @@ where Stream: Read + Write + Seek {
     }
 }
 
-impl<Stream> Pager<Stream>
+impl<'Buffer, Stream> Pager<'Buffer, Stream>
 where Stream: Read + Write + Seek
 {
     /// Reserved size of the pager header
@@ -121,7 +134,7 @@ where Stream: Read + Write + Seek
     }
 
     /// Return an iterator over upserted pages.
-    pub fn iter_upserted_pages(&self) -> impl Iterator<Item=BufferCell<BrouasPage>> {
+    pub fn iter_upserted_pages(&self) -> impl Iterator<Item=Self::Page> {
         self.pool.iter().filter(|cell| cell.is_modified())
     }
 }
@@ -129,9 +142,7 @@ where Stream: Read + Write + Seek
 #[cfg(test)]
 mod tests {
     use std::io::{Write, Read};
-
     use crate::{io::{InMemory, Data}, fixtures};
-
     use super::{traits::Pager, PageId};
 
 
@@ -154,7 +165,6 @@ mod tests {
         page.get_reader().read(&mut stored)?;
         
         assert_eq!(random, stored);
-
 
         Ok(())
     }
