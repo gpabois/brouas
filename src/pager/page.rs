@@ -4,7 +4,7 @@ use crate::buffer::{ArrayBufferCell};
 
 use self::traits::{WritePage, ReadPage};
 
-use super::FREE_PAGE;
+use super::{FREE_PAGE, PageId};
 
 /// Page types
 pub const ROOT: u8 = 0x1;
@@ -146,29 +146,39 @@ where D: Deref<Target=[u8]>
 }
 
 #[derive(Clone)]
-pub struct PageSection<B, P>(B, Range<usize>, std::marker::PhantomData<P>);
+pub struct PageSectionRef(PageId, Range<usize>);
 
-impl<B, P> PageSection<B, P>
-where B: AsRef<P>, P: ReadPage
+impl PageSectionRef {
+    pub fn deref_section<'page, Pager: crate::pager::traits::Pager<'page>>(self, pager: &Pager) -> crate::pager::Result<PageSection<Pager::Page>> {
+        let page = pager.get_page(self.0)?;
+        Ok(PageSection(page, self.1))
+    }
+}
+
+#[derive(Clone)]
+pub struct PageSection<P>(P, Range<usize>);
+
+impl<P> PageSection<P>
+where P: ReadPage
 {
     pub fn len(&self) -> usize {
-        return self.0.as_ref().deref_body()[self.1.clone()].len()
+        return self.0.deref_body()[self.1.clone()].len()
     }
 }
 
-impl<B, P> AsRef<[u8]> for PageSection<B, P>
-where B: AsRef<P>, P: ReadPage
+impl<P> AsRef<[u8]> for PageSection<P>
+where P: ReadPage
 {
     fn as_ref(&self) -> &[u8] {
-        &self.0.as_ref().deref_body()[self.1.clone()]
+        &self.0.deref_body()[self.1.clone()]
     }
 }
 
-impl<B, P> AsMut<[u8]> for PageSection<B, P>
-where B: AsMut<P>, P: WritePage
+impl<P> AsMut<[u8]> for PageSection<P>
+where P: WritePage
 {
     fn as_mut(&mut self) -> &mut [u8] {
-        &mut self.0.as_mut().deref_mut_body()[self.1.clone()]
+        &mut self.0.deref_mut_body()[self.1.clone()]
     }
 }
 

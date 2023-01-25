@@ -1,7 +1,7 @@
 use std::{ops::{Deref, DerefMut, Range}, io::{Write, Seek, Read}, cmp::{min, max}, borrow::{Borrow, BorrowMut}};
 
 use crate::pager::PageId;
-use super::{page::{PageSection, traits::{WritePage, ReadPage}}, OVERFLOW_PAGE};
+use super::{page::{PageSection, traits::{WritePage, ReadPage}, PageSectionRef}, OVERFLOW_PAGE};
 
 pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
@@ -18,11 +18,11 @@ const SOURCE_SIZE: Range<usize> = 10..18;
 const SOURCE_RESERVED: usize = 18;
 
 #[derive(Clone)]
-pub struct OverflowPage<B, P>(B, std::marker::PhantomData<P>);
+pub struct OverflowPage<P>(P);
 
-impl<B, P> OverflowPage<B, P> where B: BorrowMut<P>, P: WritePage {
+impl<P> OverflowPage<P> where P: WritePage {
     pub fn set_in_size(&mut self, size: u16) {
-        self.0.borrow_mut().deref_mut_body()[OV_SIZE].copy_from_slice(&size.to_le_bytes());
+        self.0.deref_mut_body()[OV_SIZE].copy_from_slice(&size.to_le_bytes());
     }
 
     pub fn push_in_size_cursor(&mut self, size: usize) {
@@ -31,18 +31,18 @@ impl<B, P> OverflowPage<B, P> where B: BorrowMut<P>, P: WritePage {
     }
 
     pub fn set_next(&mut self, next: PageId) {
-        self.0.borrow_mut().deref_mut_body()[OV_NEXT].copy_from_slice(&next.to_le_bytes());
+        self.0.deref_mut_body()[OV_NEXT].copy_from_slice(&next.to_le_bytes());
     }
 
     pub fn deref_mut_body(&mut self) -> &mut [u8] {
-        &mut self.0.borrow_mut().deref_mut_body()[OV_RESERVED..]
+        &mut self.0.deref_mut_body()[OV_RESERVED..]
     }
 
     pub fn drop(&mut self) {
         self.0.borrow_mut().drop()
     }
 }
-impl<B, P> OverflowPage<B, P> where B: Borrow<P>, P: crate::pager::page::traits::ReadPage {
+impl<P> OverflowPage<P> where P: ReadPage {
     pub fn get_in_size(&self) -> u16 {
         u16::from_le_bytes(self.0.borrow().deref_body()[OV_SIZE].try_into().unwrap())
     }
@@ -64,26 +64,34 @@ impl<B, P> OverflowPage<B, P> where B: Borrow<P>, P: crate::pager::page::traits:
     }
 }
 
-fn new_overflow_page<Pager>(pager: &Pager) -> crate::pager::Result<OverflowPage<Pager::Page, Pager::Page>> 
-where Pager: crate::pager::traits::Pager
+fn new_overflow_page<'page, Pager>(pager: &Pager) -> crate::pager::Result<OverflowPage<Pager::Page>> 
+where Pager: crate::pager::traits::Pager<'page>
 {
     Ok(
         OverflowPage(
-            pager.new_page(OVERFLOW_PAGE)?,
-            Default::default()
+            pager.new_page(OVERFLOW_PAGE)?
         )
     )
 }
 
 #[derive(Clone)]
-pub struct VarSource<B, P>(PageSection<B, P>);
+pub struct VarSourceRef(PageSectionRef);
 
-impl<B, P> TryFrom<PageSection<B, P>> for VarSource<B, P> 
-where B: Borrow<P>, P: ReadPage
+impl VarSourceRef {
+    fn deref_source<'page, Pager: crate::pager::traits::Pager<'page>>(self, pager: &Pager) -> crate::pager::Result<VarSource<Pager::Page>> {
+        Ok(VarSource(self.0.deref_section(pager)?))
+    }
+}
+
+#[derive(Clone)]
+pub struct VarSource<P>(PageSection<P>);
+
+impl<P> TryFrom<PageSection<P>> for VarSource<P> 
+where P: ReadPage
 {
     type Error = Error;
 
-    fn try_from(value: PageSection<B, P>) -> Result<Self> {
+    fn try_from(value: PageSection<P>) -> Result<Self> {
         if value.len() < SOURCE_RESERVED {
             return Err(Error::InsufficientSourceSpace { expected: SOURCE_RESERVED, got: value.len() })
         }
@@ -92,15 +100,15 @@ where B: Borrow<P>, P: ReadPage
     }
 }
 
-impl<B, P> VarSource<B, P>
-where B: BorrowMut<P>, P: WritePage 
+impl<P> VarSource<P>
+where P: WritePage + ReadPage
 {
     pub fn set_size(&mut self, size: u64) {
-        self.0.deref_mut()[SOURCE_SIZE].copy_from_slice(&size.to_le_bytes())
+        self.0.as_mut()[SOURCE_SIZE].copy_from_slice(&size.to_le_bytes())
     }
     
     pub fn set_in_size(&mut self, size: u16) {
-        self.0.deref_mut()[SOURCE_IN_SIZE].copy_from_slice(&size.to_le_bytes())
+        self.0.as_mut()[SOURCE_IN_SIZE].copy_from_slice(&size.to_le_bytes())
     }
 
     pub fn push_size_cursor(&mut self, size: u64) {
@@ -114,19 +122,19 @@ where B: BorrowMut<P>, P: WritePage
     }
 
     pub fn set_next(&mut self, pid: PageId) {
-        self.0.deref_mut()[SOURCE_NEXT].copy_from_slice(&pid.to_le_bytes());
+        self.0.as_mut()[SOURCE_NEXT].copy_from_slice(&pid.to_le_bytes());
     }
 
     pub fn deref_mut_body(&mut self) -> &mut [u8] {
-        &mut self.0.deref_mut()[SOURCE_RESERVED..]
+        &mut self.0.as_mut()[SOURCE_RESERVED..]
     }
 }
 
-impl<B, P> VarSource<B, P> 
-where P: Borrow<P>, P: ReadPage
+impl<P> VarSource<P> 
+where P: ReadPage
 {
     pub fn get_next(&self) -> Option<PageId> {
-        let pid = u64::from_le_bytes(self.0.deref()[SOURCE_NEXT].try_into().unwrap());
+        let pid = u64::from_le_bytes(self.0.as_ref()[SOURCE_NEXT].try_into().unwrap());
 
         if pid == 0 {
             return None
@@ -136,27 +144,27 @@ where P: Borrow<P>, P: ReadPage
     }
 
     pub fn get_size(&self) -> u64 {
-        return u64::from_le_bytes(self.0.deref()[SOURCE_SIZE].try_into().unwrap());
+        return u64::from_le_bytes(self.0.as_ref()[SOURCE_SIZE].try_into().unwrap());
     }
 
     pub fn get_in_size(&self) -> u16 {
-        return u16::from_le_bytes(self.0.deref()[SOURCE_IN_SIZE].try_into().unwrap());
+        return u16::from_le_bytes(self.0.as_ref()[SOURCE_IN_SIZE].try_into().unwrap());
     }
 
     pub fn deref_body(&self) -> &[u8] {
-        &self.0.deref()[SOURCE_RESERVED..]
+        &self.0.as_ref()[SOURCE_RESERVED..]
     }
 
 }
 
 #[derive(Clone)]
-pub enum VarSection<B, P> {
-    Overflow(OverflowPage<B, P>),
-    Source(VarSource<B, P>)
+pub enum VarSection<P> {
+    Overflow(OverflowPage<P>),
+    Source(VarSource<P>)
 }
 
-impl<B, P> VarSection<B, P>
-where B: BorrowMut<P>, P: WritePage
+impl<P> VarSection<P>
+where P: WritePage + ReadPage
 {
     pub fn set_next(&mut self, pid: PageId) {
         match self {
@@ -173,8 +181,8 @@ where B: BorrowMut<P>, P: WritePage
     }
 }
 
-impl<B, P> VarSection<B, P> 
-where B: Borrow<P>, P: ReadPage
+impl<P> VarSection<P> 
+where P: ReadPage
 {
     pub fn get_next(&self) -> Option<PageId> {
         match self {
@@ -191,8 +199,8 @@ where B: Borrow<P>, P: ReadPage
     }
 }
 
-impl<B, P> VarSection<B, P>
-where B: BorrowMut<P>, P: WritePage
+impl<P> VarSection<P>
+where P: WritePage + ReadPage
 {
     fn deref_mut_body(&mut self) -> &mut [u8] {
         match self {
@@ -202,8 +210,8 @@ where B: BorrowMut<P>, P: WritePage
     }
 }
 
-impl<B, P> VarSection<B, P>
-where B: Borrow<P>, P: ReadPage
+impl<P> VarSection<P>
+where P: ReadPage
 {
     fn deref_body(&self) -> &[u8] {
         match self {
@@ -213,53 +221,45 @@ where B: Borrow<P>, P: ReadPage
     }
 }
 
-pub struct VarSectionIterator<'a, B, P, Pager>(VarSource<B, P>, VarSection<B, P>, &'a Pager)
-where Pager: crate::pager::traits::Pager;
+pub struct VarSectionIterator<'a, Pager>(VarSourceRef, VarSection<Pager::Page>, &'a Pager)
+where Pager: crate::pager::traits::Pager<'a>;
 
-impl<'a, B, P, Pager> VarSectionIterator<'a, B, P, Pager>
-where Pager: crate::pager::traits::Pager
+impl<'a, Pager> VarSectionIterator<'a, Pager>
+where Pager: crate::pager::traits::Pager<'a>
 {
-    pub fn new(pager: &'a Pager, source: impl Into<VarSource<B, P>>) -> Self {
+    pub fn new(pager: &'a Pager, source: impl Into<VarSourceRef>) -> Self {
         let src = source.into();
 
         Self(
             src,
-            VarSection::Source(&src),
+            VarSection::Source(src.clone().deref_source(pager).unwrap()),
             pager
         )
     }
 
-    pub fn borrow_current(&self) -> &VarSection<B, P> {
+    pub fn borrow_current(&self) -> &VarSection<Pager::Page> {
         &self.1
     }
 
-    pub fn borrow_mut_current(&mut self) -> &mut VarSection<B, P> {
+    pub fn borrow_mut_current(&mut self) -> &mut VarSection<Pager::Page> {
         &mut self.1
     }
 
-    pub fn borrow_head(&self) -> &VarSource<B, P> {
-        &self.0
-    }
-
-    pub fn borrow_mut_head(&mut self) -> &mut VarSource<B, P> {
-        &mut self.0
-    }
-
     pub fn restart(&mut self) {
-        self.1 = VarSection::Source(self.0);
+        self.1 = VarSection::Source(self.0.clone().deref_source(self.2).unwrap());
     }
 }
 
 
-impl<'a, B, P, Pager> Iterator for VarSectionIterator<'a, B, P, Pager>
-where Pager: crate::pager::traits::Pager<Page=B>, B: Borrow<P>
+impl<'a, Pager> Iterator for VarSectionIterator<'a, Pager>
+where Pager: crate::pager::traits::Pager<'a>
 {
-    type Item = VarSection<B, P>;
+    type Item = VarSection<Pager::Page>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(pid) = self.0.get_next() {
             let page = self.2.get_page(pid).ok()?;
-            self.1 = VarSection::Overflow(OverflowPage(page, Default::default()));
+            self.1 = VarSection::Overflow(OverflowPage(page));
             return Some(self.1.clone())
         }
 
@@ -267,17 +267,17 @@ where Pager: crate::pager::traits::Pager<Page=B>, B: Borrow<P>
     }
 }
 
-pub struct VarStream<'a, B, P, Pager>
-where Pager: crate::pager::traits::Pager {
-    iterator: VarSectionIterator<'a, B, P, Pager>,
+pub struct VarStream<'a, Pager>
+where Pager: crate::pager::traits::Pager<'a> {
+    iterator: VarSectionIterator<'a, Pager>,
     section_cursor: u64,
     var_cursor: u64
 }
 
-impl<'a, B, P, Pager> VarStream<'a, B, P, Pager> 
-where Pager: crate::pager::traits::Pager
+impl<'page, Pager> VarStream<'page, Pager> 
+where Pager: crate::pager::traits::Pager<'page>
 {
-    pub fn new(pager: &'a Pager, source: impl Into<VarSource<B, P>>) -> Self {
+    pub fn new(pager: &Pager, source: impl Into<VarSource<Pager::Page>>) -> Self {
         Self {
             iterator: VarSectionIterator::new(pager, source),
             section_cursor: 0,
@@ -286,8 +286,8 @@ where Pager: crate::pager::traits::Pager
     }
 }
 
-impl<'a, B, P, Pager> VarStream<'a, B, P, Pager>
-where Pager: crate::pager::traits::Pager, B: Borrow<P>, P: ReadPage
+impl<'page, Pager> VarStream<'page, Pager>
+where Pager: crate::pager::traits::Pager<'page>, Pager::Page: ReadPage
 {
     pub fn get_dest_cursor(&self, pos: std::io::SeekFrom) -> std::io::Result<usize> {
         let dest = match pos {
@@ -330,8 +330,8 @@ where Pager: crate::pager::traits::Pager, B: Borrow<P>, P: ReadPage
     }
 }
 
-impl<'a, B, P, Pager> Seek for VarStream<'a, B, P, Pager>
-where Pager: crate::pager::traits::Pager, B: Borrow<P>
+impl<'page, Pager> Seek for VarStream<'page, Pager>
+where Pager: crate::pager::traits::Pager<'page>
 {
     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
         let dest = self.get_dest_cursor(pos)?;
@@ -340,8 +340,8 @@ where Pager: crate::pager::traits::Pager, B: Borrow<P>
     }
 }
 
-impl<'a, B, P, Pager> Read for VarStream<'a, B, P, Pager> 
-where Pager: crate::pager::traits::Pager
+impl<'page, Pager> Read for VarStream<'page, Pager> 
+where Pager: crate::pager::traits::Pager<'page>
 {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         if buf.len() == 0 {
@@ -374,8 +374,8 @@ where Pager: crate::pager::traits::Pager
     }
 }
 
-impl<'a, B, P, Pager> Write for VarStream<'a, B, P, Pager> 
-where Pager: crate::pager::traits::Pager, B: BorrowMut<P>, P: WritePage
+impl<'page, Pager> Write for VarStream<'page, Pager> 
+where Pager: crate::pager::traits::Pager<'page>, Pager::Page: WritePage
 {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
 

@@ -5,7 +5,7 @@ use crate::{buffer::{Buffer, BufferCellIterator}, utils::Counter};
 use self::page::{BufPage, Page, traits::{ReadPage, WritePage}};
 
 pub mod page;
-// pub mod overflow;
+pub mod overflow;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
