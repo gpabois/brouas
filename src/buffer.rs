@@ -1,4 +1,4 @@
-use std::{alloc::Layout, ops::{Deref, DerefMut}, marker::PhantomData, borrow::{Borrow, BorrowMut}};
+use std::{alloc::Layout, ops::{Deref, DerefMut}};
 
 #[derive(Debug)]
 pub enum Error {
@@ -7,45 +7,26 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-pub struct BufferCell<'a, T: ?Sized> {
-    block: *mut BufferBlock,
-    _pht: std::marker::PhantomData<&'a T>
-}
-
-impl<'a, T> AsRef<T> for BufferCell<'a, T> {
-    fn as_ref(&self) -> &'a T {
-        self.deref()
-    }
-}
-
-impl<'a, T> AsMut<T> for BufferCell<'a, T> {
-    fn as_mut(&mut self) -> &'a mut T {
-        self.deref_mut()
-    }
-}
-
-impl<'a, T> Deref for BufferCell<'a, T> {
-    type Target = T;
-
-    fn deref(&self) -> &'a Self::Target {
-        unsafe {
-            BufferBlock::leak_value_unchecked::<T>(self.block).as_ref().unwrap()
-        }
-    }
-}
-
-impl<'a, T> DerefMut for BufferCell<'a, T> {
-    fn deref_mut(&mut self) -> &'a mut Self::Target {
-        unsafe {
-            (*self.block).modified = true;
-            BufferBlock::leak_value_unchecked::<T>(self.block).as_mut().unwrap()
-        }
-    }
-}
-
-impl<'a, T> BufferCell<'a, T> 
+pub struct RawBufferCell<'buffer>
 {
-    pub fn new(block: *mut BufferBlock) -> Self {
+    block: *mut BufferBlock,
+    _pht: std::marker::PhantomData<&'buffer ()>
+}
+
+impl<'buffer> From<*mut BufferBlock> for RawBufferCell<'buffer> {
+    fn from(ptr: *mut BufferBlock) -> Self {
+        Self::new(ptr)
+    }
+}
+
+impl<'buffer> Clone for RawBufferCell<'buffer> {
+    fn clone(&self) -> Self {
+        Self::new(self.block)
+    }
+}
+
+impl<'buffer> RawBufferCell<'buffer> {
+    fn new(block: *mut BufferBlock) -> Self {
         unsafe {
             (*block).rc += 1;
         }
@@ -54,6 +35,15 @@ impl<'a, T> BufferCell<'a, T>
             block,
             _pht: Default::default()
         }
+    }
+
+    pub fn leak(&self) -> *mut BufferBlock {
+        self.block
+    }
+
+    pub fn leak_mut(&mut self) -> *mut BufferBlock {
+        self.raise_modification_flag();
+        self.block
     }
 
     pub fn rc(&self) -> usize {
@@ -79,9 +69,37 @@ impl<'a, T> BufferCell<'a, T>
             (*self.block).is_modified()
         }
     }
+
+    pub fn try_into<T>(self) -> Option<BufferCell<'buffer, T>> {
+        unsafe {
+            let size = std::mem::size_of::<T>();
+            let block_size = size.wrapping_div_euclid((*self.block).size);
+            if size == block_size {
+                return Some(BufferCell::new(self))
+            } else {
+                return None
+            }
+        }   
+    }
+
+    pub fn try_into_array<T>(self) -> Option<ArrayBufferCell<'buffer, T>> {
+        unsafe {
+            let size = std::mem::size_of::<T>();
+            let block_size = (*self.block).size;
+
+            let capacity = block_size.wrapping_div_euclid(size);
+            let rem = block_size.wrapping_rem_euclid(size);
+
+            if rem == 0 && capacity > 0 {
+                return Some(ArrayBufferCell::new(self, capacity))
+            } else {
+                return None
+            }
+        }
+    }
 }
 
-impl<'a, T: ?Sized> Drop for BufferCell<'a, T> {
+impl<'buffer> Drop for RawBufferCell<'buffer> {
     fn drop(&mut self) {
         unsafe {
             (*self.block).rc -= 1;
@@ -89,12 +107,87 @@ impl<'a, T: ?Sized> Drop for BufferCell<'a, T> {
     }
 }
 
-impl<'a, T> Clone for BufferCell<'a, T> {
-    fn clone(&self) -> Self {
-        Self::new(self.block)
+pub struct BufferCell<'buffer, T: ?Sized> {
+    raw: RawBufferCell<'buffer>,
+    _pht: std::marker::PhantomData<T>
+}
+
+impl<'a, T> Deref for BufferCell<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &'a Self::Target {
+        unsafe {
+            BufferBlock::leak_value_unchecked::<T>(self.raw.leak()).as_ref().unwrap()
+        }
     }
 }
 
+impl<'a, T> DerefMut for BufferCell<'a, T> {
+    fn deref_mut(&mut self) -> &'a mut Self::Target {
+        unsafe {
+            BufferBlock::leak_value_unchecked::<T>(self.raw.leak_mut()).as_mut().unwrap()
+        }
+    }
+}
+
+impl<'buffer, T> BufferCell<'buffer, T> 
+{
+    fn new(block: impl Into<RawBufferCell<'buffer>>) -> Self {
+        Self {
+            raw: block.into(),
+            _pht: Default::default()
+        }
+    }
+
+}
+
+impl<'a, T> Clone for BufferCell<'a, T> {
+    fn clone(&self) -> Self {
+        Self::new(self.raw.clone())
+    }
+}
+
+pub struct ArrayBufferCell<'buffer, T> {
+    len: usize,
+    raw: RawBufferCell<'buffer>,
+    _pht: std::marker::PhantomData<T>
+}
+
+impl<'buffer, T> ArrayBufferCell<'buffer, T> {
+    fn new(raw: impl Into<RawBufferCell<'buffer>>, len: usize) -> Self {
+        Self {
+            len,
+            raw: raw.into(),
+            _pht: Default::default()
+        }
+    }
+
+    pub fn is_modified(&self) -> bool {
+        self.raw.is_modified()
+    }
+
+    pub fn drop_modification_flag(&mut self) {
+        self.raw.drop_modification_flag()
+    }
+}
+
+impl<'buffer, T> Deref for ArrayBufferCell<'buffer, T> {
+    type Target = [T];
+
+    fn deref(&self) -> &'buffer Self::Target {
+        unsafe {
+            std::slice::from_raw_parts(BufferBlock::leak_value_unchecked::<T>(self.raw.leak()), self.len)
+        }
+    }
+}
+
+impl<'a, T> DerefMut for ArrayBufferCell<'a, T> {
+    fn deref_mut(&mut self) -> &'a mut Self::Target {
+        unsafe {
+            std::slice::from_raw_parts_mut(BufferBlock::leak_value_unchecked::<T>(self.raw.leak_mut()), self.len)
+        }
+    }
+}
 pub struct BufferBlock {
     pub size:       usize,
     pub free:       bool,
@@ -183,9 +276,23 @@ impl Iterator for BufferBlockIterator {
     }
 }
 
+pub struct BufferCellIterator<'buffer>(BufferBlockIterator, std::marker::PhantomData<&'buffer ()>);
+
+impl<'buffer> Iterator for BufferCellIterator<'buffer> {
+    type Item = RawBufferCell<'buffer>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.0.next() {
+            None => None,
+            Some(block) => Some(RawBufferCell::from(block))
+        }
+    }
+}
+
+
 impl Buffer {
     /// Create a buffer intented to be used with equal_sized memory blocks.
-    pub fn new_equal_blocks<T>(capacity: usize) -> Self {
+    pub fn new_by_type<T>(capacity: usize) -> Self {
         let align   = (std::mem::size_of::<T>() + std::mem::size_of::<BufferBlock>()).next_power_of_two();
         let size    = capacity.wrapping_mul(align);
         let layout = Layout::from_size_align(size, align).unwrap();
@@ -198,12 +305,30 @@ impl Buffer {
         }
     }
 
+    pub fn new_by_array<T>(array_size: usize, capacity: usize) -> Self {
+        let block_data_size = std::mem::size_of::<T>().wrapping_mul(array_size);
+        let align   = (block_data_size + std::mem::size_of::<BufferBlock>()).next_power_of_two();
+        let size    = capacity.wrapping_mul(align);
+        let layout = Layout::from_size_align(size, align).unwrap();
+        
+        unsafe {
+            let base = std::alloc::alloc_zeroed(layout) as *mut BufferBlock;
+            let tail = std::cell::RefCell::new(base);
+            let end = (base as *mut u8).offset(size as isize) as *mut BufferBlock;    
+            Self { layout, base, last: std::cell::RefCell::new(std::ptr::null_mut()), tail, end, block_count: 0 }       
+        }        
+    }
+
     fn iter_blocks(&self) -> BufferBlockIterator {
         if *self.tail.borrow() == self.base {
             return BufferBlockIterator(std::ptr::null_mut());
         } else {
             return BufferBlockIterator(self.base);
         }
+    }
+
+    pub fn iter(&self) -> BufferCellIterator {
+        BufferCellIterator(self.iter_blocks(), Default::default())
     }
 
     /// Find a candidate block (unshared and which lru is low) to reallocate
@@ -300,6 +425,11 @@ impl Buffer {
         let block = self.alloc_raw(std::mem::size_of::<T>())?;
         Ok(BufferCell::new(block))      
     }
+
+    pub fn alloc_array_uninit<'a, T>(&'a self, len: usize) -> Result<ArrayBufferCell<'a, T>> {
+        let block = self.alloc_raw(std::mem::size_of::<T>().wrapping_mul(len))?; 
+        Ok(ArrayBufferCell::new(block, len))
+    }
 }
 
 impl Drop for Buffer {
@@ -310,72 +440,23 @@ impl Drop for Buffer {
     }
 }
 
-pub struct BufferPool<T>(Buffer, PhantomData<T>);
-
-impl<T> BufferPool<T>
-where T: 'static 
-{
-    pub fn new(capacity: usize) -> Self {
-        Self(Buffer::new_equal_blocks::<T>(capacity), Default::default())
-    }
-
-    pub fn alloc(&self, value: T) -> Result<BufferCell<T>> {
-        self.0.alloc(value)
-    }
-
-    pub fn alloc_uninit(&self) -> Result<BufferCell<T>> {
-        self.0.alloc_uninit::<T>()
-    }
-
-    pub fn iter(&self) -> BufferPoolIterator<T> {
-        BufferPoolIterator(self.0.iter_blocks(), Default::default())
-    }
-}
-
-pub struct BufferPoolIterator<'a, T>(BufferBlockIterator, std::marker::PhantomData<&'a T>);
-
-impl<'a, T> Iterator for BufferPoolIterator<'a, T> {
-    type Item = BufferCell<'a, T>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some(block) = self.0.next() {
-            return Some(BufferCell::new(block))
-        } else {
-            return None
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::ops::{DerefMut, Deref};
     use crate::fixtures;
-    use super::{Buffer, BufferPool};
+    use super::{Buffer};
 
     #[test]
     fn test_buffer() -> super::Result<()> {
         let random = fixtures::random_data(16000);
-        let buffer = Buffer::new_equal_blocks::<[u8;16000]>(200);
-        let mut arr = buffer.alloc_uninit::<[u8;16000]>()?;
+        let buffer = Buffer::new_by_array::<u8>(16000, 300);
+        let mut arr = buffer.alloc_array_uninit::<u8>(16000)?;
 
+        assert_eq!(arr.deref().len(), 16000);
         arr.deref_mut().copy_from_slice(&random);
         
         assert_eq!(*arr.deref(), *random);
         
-        Ok(())
-    }
-
-    #[test]
-    fn test_buffer_pool() -> super::Result<()> {
-        let capacity: usize = 10_000;
-        let pool = BufferPool::<[u8; 16_000]>::new(capacity);
-
-        for _ in 0..capacity {
-            let mut block = pool.alloc_uninit()?;
-            fixtures::randomise(block.deref_mut());
-            block.drop_modification_flag();
-        }
-
         Ok(())
     }
 }

@@ -1,4 +1,4 @@
-use std::ops::{Deref, DerefMut, AddAssign};
+use std::ops::{Deref, DerefMut};
 
 #[derive(Default)]
 pub struct Counter(std::cell::RefCell<u64>);
