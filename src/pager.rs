@@ -1,8 +1,8 @@
 use std::{io::{Read, Write, Seek, SeekFrom}, ops::DerefMut};
 
-use crate::{buffer::{Buffer, BufferCellIterator}, utils::Counter};
+use crate::{buffer::{Buffer, BufCellIterator, BufArray}, utils::Counter};
 
-use self::page::{BufPage, Page, traits::{ReadPage, WritePage}};
+use self::page::{Page, BufPage, traits::{ReadPage, WritePage}};
 
 pub mod page;
 pub mod overflow;
@@ -44,9 +44,16 @@ pub mod traits {
     pub trait Pager<'a> {
         type Page;
         
+        /// Create a new page
         fn new_page(&'a self, ptype: u8) -> Result<Self::Page>;
-        fn get_page(&'a self, pid: PageId)  -> Result<Self::Page>;
+
+        /// Returns a cell to a page that can be upgraded to a mutable/immutable reference.
+        fn get_page(&'a self, pid: PageId) -> Result<Self::Page>;
+
+        /// Drop the page
         fn drop_page(&self, pid: PageId) -> Result<()>;
+
+        /// Flush upserted pages into the stream
         fn flush(&self) -> Result<()>;
     }
 }
@@ -58,11 +65,11 @@ pub const FREE_PAGE: u8 = 0x00;
 pub const OVERFLOW_PAGE: u8 = 0xFF;
 
 pub struct BufPageIterator<'buffer> {
-    cells: BufferCellIterator<'buffer>
+    cells: BufCellIterator<'buffer>
 }
 
 impl<'buffer> BufPageIterator<'buffer> {
-    pub fn new(cells: BufferCellIterator<'buffer>) -> Self {
+    pub fn new(cells: BufCellIterator<'buffer>) -> Self {
         Self {
             cells
         }
@@ -92,20 +99,20 @@ impl<'buffer, Stream> self::traits::Pager<'buffer> for Pager<'buffer, Stream>
 where Stream: Read + Write + Seek {
 
     type Page = BufPage<'buffer>;
-    
+
     /// Create a new page
     fn new_page(&'buffer self, ptype: u8) -> Result<Self::Page> 
     {
         let pid = self.counter.inc();
         let area = self.pool.alloc_array_uninit::<u8>(PAGE_SIZE)?;
-        let page = Page::new(pid, ptype, area);
+        let page = Page::<BufArray<_>>::new(pid, ptype, area);
         Ok(page)
     }
 
     /// Get a page by its index
     fn get_page(&'buffer self, index: PageId) -> Result<Self::Page> {
         // We check if the page is already stored in memory
-        if let Some(page) = self.iter().find(|page| page.get_id() == index)
+        if let Some(page) = self.iter().find(|page| page.borrow().get_id() == index)
         {
             Ok(page)
         } 
@@ -113,27 +120,28 @@ where Stream: Read + Write + Seek {
         else {
             self.io.borrow_mut().seek(SeekFrom::Start(self.reserved() as u64))?;
             let mut page = Page::from(self.pool.alloc_array_uninit::<u8>(PAGE_SIZE)?);
-            self.io.borrow_mut().deref_mut().read_exact(page.deref_mut())?;
+            self.io.borrow_mut().deref_mut().read_exact(page.borrow_mut().deref_mut())?;
             Ok(page)
         }
     }
 
     /// Drop the page
     fn drop_page(&self, pid: PageId) -> Result<()> {
-        self.get_page(pid)?.set_type(FREE_PAGE);
+        self.get_page(pid)?.borrow_mut().set_type(FREE_PAGE);
         Ok(())
     }
 
     fn flush(&self) -> Result<()> {
         for mut page in self.iter_upserted_pages() {
-            let offset = (RESERVED + page.get_size() * (page.get_id() as usize)) as u64;
+            let offset = (RESERVED + page.borrow().get_size() * (page.borrow().get_id() as usize)) as u64;
             self.io.borrow_mut().seek(SeekFrom::Start(offset))?;
-            self.io.borrow_mut().write_all(&page)?;
-            page.borrow_mut_data().drop_modification_flag();
+            self.io.borrow_mut().write_all(&page.borrow_mut().deref_mut())?;
+            page.borrow_mut_data().ack_upsertion();
         }
 
         Ok(())
     }
+
 }
 
 impl<'buffer, Stream> Pager<'buffer, Stream>
@@ -158,7 +166,7 @@ where Stream: Read + Write + Seek
 
     /// Return an iterator over upserted pages.
     pub fn iter_upserted_pages(&self) -> impl Iterator<Item=BufPage> {
-        self.iter().filter(|page| page.borrow_data().is_modified())
+        self.iter().filter(|page| page.borrow_data().is_upserted())
     }
 
     /// Iterate over in memory pages
@@ -183,13 +191,13 @@ mod tests {
         
         let pid: PageId;
         {
-            let mut page = pager.new_page(0x10)?;
+            let mut page = pager.new_page(0x10)?.borrow_mut();
             page.deref_mut_body().write_all(&random)?;
             pid = page.get_id();
         }
 
         let mut stored = Data::with_size(data_size);
-        let page = pager.get_page(pid)?;
+        let page = pager.get_page(pid)?.borrow();
         page.deref_body().read(&mut stored)?;
         
         assert_eq!(random, stored);
