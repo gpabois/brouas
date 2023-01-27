@@ -1,10 +1,10 @@
-use std::{ops::{Deref, DerefMut, Range}, io::Read};
+use std::{ops::{Range, Deref, DerefMut}};
 
-use crate::buffer::{BufArray, RefBufArray, RefMutBufArray};
+use crate::{buffer::{BufArray, RefBufArray, RefMutBufArray}, utils::{borrow::{BorrowMut, Borrow}, ops::{GenRange, subrange}, slice::{RefSection, SubSlice, Section}}};
 
-use self::traits::{WritePage, ReadPage};
+use self::traits::{ReadPage, ReadPageSection, WritePageSection};
 
-use super::{FREE_PAGE, PageId};
+use super::{FREE_PAGE};
 
 /// Page types
 pub const ROOT: u8 = 0x1;
@@ -19,246 +19,116 @@ const RESERVED: usize = 18;
 
 pub mod traits 
 {
-    use std::io::Read;
+    use std::{ops::{DerefMut, RangeBounds}};
 
-    pub trait ReadPage {
+    use crate::utils::borrow::{Borrow, BorrowMut};
+    pub trait ReadPageSection {
+        type ReadSection: Borrow<[u8]>;
+
+        /// Borrow only the content of the body
+        fn borrow_body(&self) -> Self::ReadSection;
+        
+        /// Borrow the whole content
+        fn borrow_all(&self) -> Self::ReadSection;
+    }
+    pub trait WritePageSection: ReadPageSection {
+        type WriteSection: BorrowMut<[u8]>;
+
+        /// Borrow only the content of the body
+        fn borrow_mut_body(&mut self) -> Self::WriteSection;
+
+        /// Borrow the whole content
+        fn borrow_mut_all(&self) -> Self::WriteSection;
+    }
+    pub trait ReadPage : ReadPageSection {
         fn get_id(&self) -> u64;
         fn get_type(&self) -> u8;
         fn get_parent(&self) -> u64;
         fn get_size(&self) -> usize;
-        fn deref_body(&self) -> &[u8];
     }
+    pub trait WritePage: WritePageSection {
+        type MutBorrowedContent: DerefMut<Target=[u8]>;
 
-    pub trait WritePage : ReadPage {
         fn set_id(&mut self, pid: u64);
         fn set_type(&mut self, ptype: u8);
         fn set_parent(&mut self, parent: u64);
-        fn deref_mut_body(&mut self) -> &mut [u8];
+
         fn drop(&mut self);
     }
 }
 
-pub struct Page<D>(D);
-
-pub type BufPage<'buffer>   = Page<BufArray<'buffer, u8>>;
-pub type RefBufPage<'buffer>    = Page<RefBufArray<'buffer, u8>>;
-pub type RefMutBufPage<'buffer> = Page<RefMutBufArray<'buffer, u8>>;
-
-impl<D> From<D> for Page<D>
-{
-    fn from(data: D) -> Self {
-        Self(data)
-    }
+fn set_id(content: &mut [u8], pid: u64) {
+    content[ID_RANGE].copy_from_slice(&pid.to_le_bytes());
 }
-
-impl<'buffer> BufPage<'buffer> {
-    pub fn new(pid: u64, ptype: u8, area: BufArray<'buffer, u8>) -> Self {
-        let page = Self(area.clone());
-
-        let mut mut_page = page.borrow_mut();
-        mut_page.set_id(pid);
-        mut_page.set_type(ptype);
-
-        page
-    }
-
-    pub fn try_borrow(&self) -> crate::pager::Result<RefBufPage<'buffer>> {
-        Ok(RefBufPage::from(self.0.try_borrow()?))
-    }
-
-    pub fn borrow(&self) -> RefBufPage<'buffer> {
-        self.try_borrow().unwrap()
-    }
-
-    pub fn try_borrow_mut(&self) -> crate::pager::Result<RefMutBufPage<'buffer>> {
-        Ok(RefMutBufPage::from(self.0.try_borrow_mut()?))
-    }
-
-    pub fn borrow_mut(&self) -> RefMutBufPage<'buffer> {
-        self.try_borrow_mut().unwrap()
-    }
+fn set_type(content: &mut [u8], ptype: u8) {
+    content[TYPE_RANGE].copy_from_slice(&u8::to_le_bytes(ptype))
 }
-
-impl<'buffer> RefMutBufPage<'buffer> {
-    /// Transform a mutable reference into an immutable reference
-    pub fn degrade(self) -> RefBufPage<'buffer> {
-        RefBufPage::from(self.0.degrade())
-    }
+fn set_parent(content: &mut [u8], parent: u64) {
+    content[PARENT_RANGE].copy_from_slice(&parent.to_le_bytes())
 }
-
-impl<D> Page<D> {
-    pub fn borrow_data(&self) -> &D {
-        &self.0
-    }
-
-    pub fn borrow_mut_data(&mut self) -> &mut D {
-        &mut self.0
-    }
-
-    fn into_body(self) -> PageSection<Self> {
-        PageSection(self, RESERVED..)
-    }
+fn get_id(content: &[u8]) -> u64 {
+    u64::from_le_bytes(
+        content[ID_RANGE]
+        .try_into()
+        .unwrap()
+    )
 }
-
-impl<D> Deref for Page<D> where D: Deref<Target=[u8]>
-{
-    type Target = [u8];
-
-    fn deref(&self) -> &[u8] {
-        self.0.deref()
-    }
+fn get_type(content: &[u8]) -> u8 {
+    u8::from_le_bytes(content[TYPE_RANGE].try_into().unwrap())
 }
-
-impl<D> DerefMut for Page<D> where D: DerefMut<Target=[u8]>
-{
-    fn deref_mut(&mut self) -> &mut [u8] {
-        self.0.deref_mut()   
-    }
-}
-
-impl<D> Page<D> where D: DerefMut<Target=[u8]> {
-    pub fn new(pid: u64, ptype: u8, area: D) -> Self {
-        let mut page = Self(area);
-        page.set_id(pid);
-        page.set_type(ptype);
-        page
-    }
-
-    pub fn load(area: D) -> Self {
-        Self(area)
-    }
-
-    pub fn init(&mut self, pid: u64, ptype: u8) {
-        self.set_id(pid);
-        self.set_type(ptype)
-    }
-}
-
-impl<D> WritePage for Page<D>
-where D: DerefMut<Target=[u8]>
-{
-    fn set_id(&mut self, pid: u64) {
-        self.deref_mut()[ID_RANGE].copy_from_slice(&pid.to_le_bytes());
-    }
-
-    fn set_type(&mut self, ptype: u8) {
-        self.deref_mut()[TYPE_RANGE].copy_from_slice(&u8::to_le_bytes(ptype))
-    }
-
-    fn set_parent(&mut self, pid: u64) {
-        self.deref_mut()[PARENT_RANGE].copy_from_slice(&pid.to_le_bytes())
-    }
-
-    fn deref_mut_body(&mut self) -> &mut [u8] {
-        &mut self.deref_mut()[RESERVED..]
-    }
-
-    fn drop(&mut self) {
-        self.set_type(FREE_PAGE)
-    }
-}
-
-impl<D> ReadPage for Page<D>
-where D: Deref<Target=[u8]>
-{ 
-    fn get_id(&self) -> u64 {
-
-        u64::from_le_bytes(
-            self.deref()[ID_RANGE]
-            .try_into()
-            .unwrap()
-        )
-    }
-
-    fn get_type(&self) -> u8 {
-        u8::from_le_bytes(self.deref()[TYPE_RANGE].try_into().unwrap())
-    }
-
-    fn get_parent(&self) -> u64 {
-        u64::from_le_bytes(self.deref()[PARENT_RANGE].try_into().unwrap())
-    }
-
-    fn deref_body(&self) -> &[u8] {
-        &self.deref()[RESERVED..]
-    }
-
-    fn get_size(&self) -> usize {
-        self.deref().len()
-    }
+fn get_parent(content: &[u8]) -> u64 {
+    u64::from_le_bytes(content[PARENT_RANGE].try_into().unwrap())
 }
 
 #[derive(Clone)]
-pub struct PageSection<P>(P, Range<usize>);
+pub struct Page<'a, Q>(Q, std::marker::PhantomData<&'a ()>);
 
-impl<P> PageSection<P> {
-    pub fn new(page: P, range: Range<usize>) -> Self {
-        Self(page, range)
-    }
-
-    pub fn into_sub(self, range: Range<usize>) -> Self {
-        Self::new(self.1, self.1[range])
-    }
-}
-
-
-pub type BufCellPageSection<'page> = PageSection<BufPage<'page>>;
-pub type RefBufPageSection<'page> = PageSection<RefBufPage<'page>>;
-pub type RefMutBufPageSection<'page> = PageSection<RefMutBufPage<'page>>;
-
-impl<'buffer> BufCellPageSection<'buffer> {
-    pub fn try_borrow(&self) -> crate::pager::Result<RefBufPageSection<'buffer>> {
-        Ok(
-            RefBufPageSection::new(self.0.try_borrow()?, self.1.clone())
-        )
-    }
-
-    pub fn borrow(&self) -> RefBufPageSection<'buffer> {
-        self.try_borrow().unwrap()
-    }
-
-    pub fn try_borrow_mut(&self) -> crate::pager::Result<RefMutBufPageSection<'buffer>> {
-        Ok(
-            RefMutBufPageSection::new(self.0.try_borrow_mut()?, self.1.clone())
-        )
-    }
-
-    pub fn borrow_mut(&self) -> RefMutBufPageSection<'buffer> {
-        self.try_borrow_mut().unwrap()
-    }
-}
-
-impl<P> PageSection<P>
-where P: ReadPage
+impl<'a, Q> ReadPageSection for Page<'a, Q> 
+where Q: Borrow<[u8]> + Clone
 {
-    pub fn len(&self) -> usize {
-        return self.0.deref_body()[self.1.clone()].len()
+    type ReadSection = Section<'a, Q, usize, u8>;
+
+    fn borrow_body(&self) -> Self::ReadSection {
+        Section::new(self.0.clone(), RESERVED..)
+    }
+
+    fn borrow_all(&self) -> Self::ReadSection {
+        Section::new(self.0.clone(), ..)
     }
 }
 
-impl<P> Deref for PageSection<P>
-where P: ReadPage
+impl<'a, Q> ReadPageSection for Page<'a, Q> 
+where Q: Borrow<[u8]>
 {
-    fn deref(&self) -> &[u8] {
-        &self.0.deref_body()[self.1.clone()]
+    type ReadSection = Section<'a, Q, usize, u8>;
+
+    fn borrow_body(&self) -> Self::ReadSection {
+        Section::new(self.0.clone(), RESERVED..)
     }
 
-    type Target = [u8];
+    fn borrow_all(&self) -> Self::ReadSection {
+        Section::new(self.0.clone(), ..)
+    }
 }
 
-impl<P> DerefMut for PageSection<P>
-where P: WritePage
+
+impl<'a, Q> WritePageSection for Page<'a, Q> 
+where Q: BorrowMut<[u8]> + Clone
 {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0.deref_mut_body()[self.1.clone()]     
+    type WriteSection = Section<'a, Q, usize, u8>;
+
+    fn borrow_mut_body(&mut self) -> Self::WriteSection {
+        Section::new(self.0.clone(), RESERVED..)
+    }
+
+    fn borrow_mut_all(&mut self) -> Self::WriteSection {
+        Section::new(self.0.clone(), RESERVED..)
     }
 }
-
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Write, Read};
-
-    use crate::{io::Data, fixtures, pager::page::traits::{WritePage, ReadPage}};
+    use crate::{io::Data, fixtures, pager::page::traits::{WritePage}};
     use super::Page;
 
     #[test]
@@ -269,9 +139,9 @@ mod tests {
         let data = fixtures::random_data(data_size);
         let mut stored_data = Data::with_size(data_size);
 
-        let mut page = Page::<&mut [u8]>::new(1, 1, &mut area[..]);
-        
-        page.deref_mut_body().write_all(&data)?;
+        let mut page = Page::new(1, 1, &mut area[..]);
+        let body = page.borrow_mut_body();
+
         page.deref_body().read_exact(&mut stored_data)?;
 
         assert_eq!(data, stored_data);

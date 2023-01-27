@@ -5,7 +5,7 @@ use crate::{buffer::{Buffer, BufCellIterator, BufArray}, utils::Counter};
 use self::page::{Page, BufPage, traits::{ReadPage, WritePage}};
 
 pub mod page;
-pub mod overflow;
+//pub mod overflow;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -105,7 +105,7 @@ where Stream: Read + Write + Seek {
     {
         let pid = self.counter.inc();
         let area = self.pool.alloc_array_uninit::<u8>(PAGE_SIZE)?;
-        let page = Page::<BufArray<_>>::new(pid, ptype, area);
+        let page = Page::new(pid, ptype, area);
         Ok(page)
     }
 
