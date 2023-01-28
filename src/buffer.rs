@@ -246,7 +246,7 @@ impl<'buffer, T: 'static> Borrow<[T]> for RefBufArray<'buffer, T> {
         }
     }
 
-    type Ref = crate::utils::borrow::Ref<'buffer, [T]>;
+    type Ref = &'buffer [T];
 }
 
 /// Mutable ref to an array stored in a buffer.
@@ -294,7 +294,7 @@ impl<'buffer, T> DerefMut for RefMutBufArray<'buffer, T> {
 }
 
 impl<'buffer, T> Borrow<[T]> for RefMutBufArray<'buffer, T> where T: 'static {
-    type Ref = crate::utils::borrow::Ref<'buffer, [T]>;
+    type Ref = &'buffer [T];
     
     fn borrow(&self) -> Self::Ref {
         unsafe {
@@ -308,7 +308,8 @@ impl<'buffer, T> Borrow<[T]> for RefMutBufArray<'buffer, T> where T: 'static {
 }
 
 impl<'buffer, T> BorrowMut<[T]> for RefMutBufArray<'buffer, T> where T: 'static {
-    type RefMut = crate::utils::borrow::RefMut<'buffer, [T]>;
+    type RefMut = &'buffer mut [T];
+    
     fn borrow_mut(&mut self) -> Self::RefMut {
         unsafe {
             std::slice::from_raw_parts_mut(BufferBlock::leak_value_unchecked::<T>(self.raw.leak_mut()), self.len).into()

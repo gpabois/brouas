@@ -1,10 +1,8 @@
-use std::{ops::{Range, Deref, DerefMut}};
+use std::{ops::{Range}};
 
-use crate::{buffer::{BufArray, RefBufArray, RefMutBufArray}, utils::{borrow::{BorrowMut, Borrow}, ops::{GenRange, subrange}, slice::{RefSection, SubSlice, Section}}};
+use crate::{utils::{borrow::{BorrowMut, Borrow}, slice::{Section}}};
 
-use self::traits::{ReadPage, ReadPageSection, WritePageSection};
-
-use super::{FREE_PAGE};
+use self::traits::{BorrowPageSection, BorrowMutPageSection};
 
 /// Page types
 pub const ROOT: u8 = 0x1;
@@ -19,10 +17,10 @@ const RESERVED: usize = 18;
 
 pub mod traits 
 {
-    use std::{ops::{DerefMut, RangeBounds}};
+    use std::{ops::{DerefMut}};
 
     use crate::utils::borrow::{Borrow, BorrowMut};
-    pub trait ReadPageSection {
+    pub trait BorrowPageSection {
         type ReadSection: Borrow<[u8]>;
 
         /// Borrow only the content of the body
@@ -31,22 +29,22 @@ pub mod traits
         /// Borrow the whole content
         fn borrow_all(&self) -> Self::ReadSection;
     }
-    pub trait WritePageSection: ReadPageSection {
+    pub trait BorrowMutPageSection: BorrowPageSection {
         type WriteSection: BorrowMut<[u8]>;
 
         /// Borrow only the content of the body
         fn borrow_mut_body(&mut self) -> Self::WriteSection;
 
         /// Borrow the whole content
-        fn borrow_mut_all(&self) -> Self::WriteSection;
+        fn borrow_mut_all(&mut self) -> Self::WriteSection;
     }
-    pub trait ReadPage : ReadPageSection {
+    pub trait ReadPage : BorrowPageSection {
         fn get_id(&self) -> u64;
         fn get_type(&self) -> u8;
         fn get_parent(&self) -> u64;
         fn get_size(&self) -> usize;
     }
-    pub trait WritePage: WritePageSection {
+    pub trait WritePage: BorrowMutPageSection {
         type MutBorrowedContent: DerefMut<Target=[u8]>;
 
         fn set_id(&mut self, pid: u64);
@@ -83,52 +81,60 @@ fn get_parent(content: &[u8]) -> u64 {
 #[derive(Clone)]
 pub struct Page<'a, Q>(Q, std::marker::PhantomData<&'a ()>);
 
-impl<'a, Q> ReadPageSection for Page<'a, Q> 
-where Q: Borrow<[u8]> + Clone
-{
-    type ReadSection = Section<'a, Q, usize, u8>;
-
-    fn borrow_body(&self) -> Self::ReadSection {
-        Section::new(self.0.clone(), RESERVED..)
+impl<'a, Q> Page<'a, Q> where Q: BorrowMut<[u8]> {
+    pub fn new(pid: u64, ptype: u8, data: Q) -> Self {
+        let mut page = Self(data, Default::default());
+        page.set_id(pid);
+        page.set_type(ptype);
+        page
     }
 
-    fn borrow_all(&self) -> Self::ReadSection {
-        Section::new(self.0.clone(), ..)
-    }
-}
-
-impl<'a, Q> ReadPageSection for Page<'a, Q> 
-where Q: Borrow<[u8]>
-{
-    type ReadSection = Section<'a, Q, usize, u8>;
-
-    fn borrow_body(&self) -> Self::ReadSection {
-        Section::new(self.0.clone(), RESERVED..)
+    pub fn set_id(&mut self, pid: u64) {
+        set_id(&mut self.0.borrow_mut(), pid)
     }
 
-    fn borrow_all(&self) -> Self::ReadSection {
-        Section::new(self.0.clone(), ..)
+    pub fn set_type(&mut self, ptype: u8) {
+        set_type(&mut self.0.borrow_mut(), ptype)
+    }
+
+    pub fn set_parent(&mut self, parent: u64) {
+        set_parent(&mut self.0.borrow_mut(), parent)
     }
 }
 
 
-impl<'a, Q> WritePageSection for Page<'a, Q> 
-where Q: BorrowMut<[u8]> + Clone
+
+impl<'a, Q> BorrowPageSection for Page<'a, Q> where Q: Borrow<[u8]> + 'a
 {
-    type WriteSection = Section<'a, Q, usize, u8>;
+    type ReadSection = Section<'a, &'a Q, usize, u8>;
+
+    fn borrow_body(&self) -> Self::ReadSection {
+        Section::new(&self.0, RESERVED..)
+    }
+
+    fn borrow_all(&self) -> Self::ReadSection {
+        Section::new(&self.0, ..)
+    }
+}
+
+impl<'a, Q> BorrowMutPageSection for Page<'a, Q> where Q: BorrowMut<[u8]> + 'a
+{
+    type WriteSection = Section<'a, &'a mut Q, usize, u8>;
 
     fn borrow_mut_body(&mut self) -> Self::WriteSection {
-        Section::new(self.0.clone(), RESERVED..)
+        Section::new(&mut self.0, RESERVED..)
     }
 
     fn borrow_mut_all(&mut self) -> Self::WriteSection {
-        Section::new(self.0.clone(), RESERVED..)
+        Section::new(&mut self.0, ..)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{io::Data, fixtures, pager::page::traits::{WritePage}};
+    use std::{ops::{DerefMut, Deref}, io::{Write, Read}};
+
+    use crate::{io::Data, fixtures, utils::borrow::{Ref, BorrowMut, Borrow}, pager::page::traits::{BorrowMutPageSection, BorrowPageSection}};
     use super::Page;
 
     #[test]
@@ -139,10 +145,16 @@ mod tests {
         let data = fixtures::random_data(data_size);
         let mut stored_data = Data::with_size(data_size);
 
-        let mut page = Page::new(1, 1, &mut area[..]);
-        let body = page.borrow_mut_body();
+        let mut page = Page::new(1, 1, Ref::from(&mut area[..]));
+        page.borrow_mut_body()
+        .borrow_mut()
+        .deref_mut()
+        .write_all(&data);
 
-        page.deref_body().read_exact(&mut stored_data)?;
+        page.borrow_body()
+        .borrow()
+        .deref()
+        .read_exact(&mut stored_data)?;
 
         assert_eq!(data, stored_data);
 

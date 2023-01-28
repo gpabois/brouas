@@ -14,7 +14,7 @@ pub mod slice {
     use std::ops::{Deref, Index, DerefMut};
     use crate::{utils::ops::GenRange};
 
-    use super::borrow::{Borrow, BorrowMut};
+    use super::borrow::{Borrow, BorrowMut, ToOwned};
 
     pub trait SubSlice {
         type Domain;
@@ -22,48 +22,44 @@ pub mod slice {
         fn sub_slice<Sub: std::ops::RangeBounds<Self::Domain>>(&self, sub: Sub) -> Self;
     }
 
-    pub struct Section<'a, Q, I, T>(Q, GenRange<I>, std::marker::PhantomData<&'a T>)
-    where Q: Borrow<[T]>, [T]: Index<GenRange<I>, Output=[T]>;
+    pub struct Section<'a, Q, I, T>(Q, GenRange<I>, std::marker::PhantomData<&'a T>) where [T]: Index<GenRange<I>, Output=[T]>;
+
+    impl<'a, Q, I, T> Section<'a, Q, I, T> where [T]: Index<GenRange<I>, Output=[T]>, I: Clone {
+        pub fn new<I2: std::ops::RangeBounds<I>>(src: Q, range: I2) -> Self {
+            Self(src, (range.start_bound().cloned(), range.end_bound().cloned()), Default::default())
+        }
+    }
 
     impl<'a, Q, I, T>  Borrow<[T]> for Section<'a, Q, I, T> 
     where Q: Borrow<[T]>, [T]: Index<GenRange<I>, Output=[T]>, I: Clone
     {
-        type Ref = RefSection<'a, Q::Ref, I, T>;
+        type Ref = Section<'a, Q::Ref, I, T>;
 
         fn borrow(&self) -> Self::Ref {
-            RefSection::new(self.0.borrow(), self.1.clone())
+            Section::new(self.0.borrow(), self.1.clone())
         }
     }
 
-    impl<'a, Q, I, T> ToOwned for Section<'a, Q, I, T> where Q: ToOwned {
+    impl<'a, Q, I, T> ToOwned for Section<'a, Q, I, T> 
+    where Q: ToOwned, [T]: Index<GenRange<I>, Output=[T]>, I: Clone {
         type Owned = Section<'a, Q::Owned, I, T>;
 
         fn to_owned(&self) -> Self::Owned {
-            Section::new(self.0.to_owned(), self.1.clone(), Default::default())
+            Section(self.0.to_owned(), self.1.clone(), Default::default())
         }
     }
 
     impl<'a, Q, I, T>  BorrowMut<[T]> for Section<'a, Q, I, T> 
     where Q: BorrowMut<[T]>, [T]: Index<GenRange<I>, Output=[T]>, I: Clone
     {
-        type RefMut = RefSection<'a, Q::RefMut, I, T>;
+        type RefMut = Section<'a, Q::RefMut, I, T>;
 
         fn borrow_mut(&mut self) -> Self::RefMut {
-            RefSection::new(self.0.borrow_mut(), self.1.clone())
+            Section::new(self.0.borrow_mut(), self.1.clone())
         }
     }
 
-    pub struct RefSection<'a, R, I, T>(R, GenRange<I>, std::marker::PhantomData<&'a T>) 
-    where R: Deref<Target=[T]>, [T]: Index<GenRange<I>, Output=[T]>;
-
-    impl<'a, S, I, T> RefSection<'a, S, I, T> 
-    where S: Deref<Target=[T]>, [T]: Index<GenRange<I>, Output=[T]>, I: Clone {
-        pub fn new<I2: std::ops::RangeBounds<I>>(src: S, range: I2) -> Self {
-            Self(src, (range.start_bound().cloned(), range.end_bound().cloned()), Default::default())
-        }
-    }
-
-    impl<'a, S, I, T> Deref for RefSection<'a, S, I, T> 
+    impl<'a, S, I, T> Deref for Section<'a, S, I, T> 
     where S: Deref<Target=[T]>, [T]: Index<GenRange<I>, Output=[T]> {
         type Target = [T];
 
@@ -72,55 +68,18 @@ pub mod slice {
         }
     }
 
-    impl<'a, S, I, T> DerefMut for RefSection<'a, S, I, T> 
+    impl<'a, S, I, T> DerefMut for Section<'a, S, I, T> 
     where S: DerefMut<Target=[T]>, [T]: Index<GenRange<I>, Output=[T]> {
 
         fn deref_mut(&mut self) -> &mut Self::Target {
             &mut self.0.deref_mut()[self.1]
         }
     }
+
 }
 
 pub mod borrow {
     use std::ops::{DerefMut, Deref};
-
-    pub struct Ref<'a, T: ?Sized>(&'a T);
-
-    impl<'a, T: ?Sized> From<&'a T> for Ref<'a, T> {
-        fn from(a: &'a T) -> Self {
-            Self(a)
-        }
-    }
-
-    impl<'a, T: ?Sized> Deref for Ref<'a, T> {
-        type Target = T;
-
-        fn deref(&self) -> &Self::Target {
-            self.0
-        }
-    }
-
-    pub struct RefMut<'a, T: ?Sized>(&'a mut T);
-    
-    impl<'a, T: ?Sized> From<&'a mut T> for RefMut<'a, T> {
-        fn from(a: &'a mut T) -> Self {
-            Self(a)
-        }
-    }
-
-    impl<'a, T: ?Sized> Deref for RefMut<'a, T> {
-        type Target = T;
-
-        fn deref(&self) -> &Self::Target {
-            self.0
-        }
-    }
-
-    impl<'a, T: ?Sized> DerefMut for RefMut<'a, T> {
-        fn deref_mut(&mut self) -> &mut Self::Target {
-            self.0
-        }
-    }
 
     pub trait Borrow<T> where T: ?Sized
     {   
@@ -128,13 +87,81 @@ pub mod borrow {
 
         fn borrow(&self) -> Self::Ref;
     }
+
+    impl<'a, T: ?Sized, R: ?Sized> Borrow<R> for &'a T where T: Borrow<R> {
+        type Ref = T::Ref;
+
+        fn borrow(&self) -> Self::Ref {
+            self.borrow()
+        }
+    } 
+
+    pub struct Ref<'a, T>(T, std::marker::PhantomData<&'a()>);
+
+    impl<'a, T: ?Sized> From<&'a T> for Ref<'a, &'a T> {
+        fn from(value: &'a T) -> Self {
+            Self(value, Default::default())
+        }
+    }
+
+    impl<'a, T: ?Sized> From<&'a mut T> for Ref<'a, &'a mut T> {
+        fn from(value: &'a mut T) -> Self {
+            Self(value, Default::default())
+        }
+    }
+
+    impl<'a, T: ?Sized> Borrow<T> for Ref<'a, &'a T> {
+        type Ref = &'a T;
+
+        fn borrow(&self) -> Self::Ref {
+            self.0
+        }
+    }
+
+    impl<'a, T: ?Sized> Borrow<T> for Ref<'a, &'a mut T> {
+        type Ref = &'a T;
+
+        fn borrow(&self) -> Self::Ref {
+            self.0
+        }
+    }
+
+
+    impl<'a, T: ?Sized> BorrowMut<T> for Ref<'a, &'a mut T> {
+        type RefMut = &'a mut T;
+
+        fn borrow_mut(&mut self) -> Self::RefMut {
+            self.0
+        }
+    }
     
     pub trait BorrowMut<T>: Borrow<T> where T: ?Sized
     {
         type RefMut: DerefMut<Target=T>;
     
         fn borrow_mut(&mut self) -> Self::RefMut;
-    }    
+    }
+    
+    impl<'a, T: ?Sized, R: ?Sized> Borrow<R> for &'a mut T where T: BorrowMut<R> {
+        type Ref = T::Ref;
+
+        fn borrow(&self) -> Self::Ref {
+            self.borrow()
+        }
+    } 
+    impl<'a, T: ?Sized, R: ?Sized> BorrowMut<R> for &'a mut T where T: BorrowMut<R> {
+        type RefMut = T::RefMut;
+
+        fn borrow_mut(&mut self) -> Self::RefMut {
+            self.borrow_mut()
+        }
+    } 
+    
+    pub trait ToOwned {
+        type Owned;
+
+        fn to_owned(&self) -> Self::Owned;
+    }
 }
 
 pub mod ops {
