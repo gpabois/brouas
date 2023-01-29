@@ -1,40 +1,13 @@
 use std::{io::{Read, Write, Seek, SeekFrom}, ops::DerefMut};
 
-use crate::{buffer::{Buffer, BufCellIterator, BufArray}, utils::Counter};
+use crate::{buffer::{Buffer, BufCellIterator, BufArray}, utils::{Counter, borrow::BorrowMut}};
 
-use self::page::{Page, BufPage, traits::{ReadPage, WritePage}};
+use self::page::{Page, traits::{ReadPage, WritePage, BorrowMutPageSection}, BufPage};
 
 pub mod page;
 //pub mod overflow;
 
-pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Debug)]
-pub enum Error {
-    BufferError(crate::buffer::Error),
-    IoError(std::io::Error)
-}
-
-impl Into<std::io::Error> for Error {
-    fn into(self) -> std::io::Error {
-        match self {
-            Error::BufferError(err) => std::io::Error::new(std::io::ErrorKind::OutOfMemory, format!("memory buffer error: {:?}", err)),
-            Error::IoError(err) => err,
-        }
-    }
-}
-
-impl From<crate::buffer::Error> for Error {
-    fn from(err: crate::buffer::Error) -> Self {
-        Self::BufferError(err)
-    }
-}
-
-impl From<std::io::Error> for Error {
-    fn from(err: std::io::Error) -> Self {
-        Self::IoError(err)
-    }
-}
 
 pub type PageId = u64;
 
@@ -112,7 +85,7 @@ where Stream: Read + Write + Seek {
     /// Get a page by its index
     fn get_page(&'buffer self, index: PageId) -> Result<Self::Page> {
         // We check if the page is already stored in memory
-        if let Some(page) = self.iter().find(|page| page.borrow().get_id() == index)
+        if let Some(page) = self.iter().find(|page| page.get_id() == index)
         {
             Ok(page)
         } 
@@ -120,23 +93,23 @@ where Stream: Read + Write + Seek {
         else {
             self.io.borrow_mut().seek(SeekFrom::Start(self.reserved() as u64))?;
             let mut page = Page::from(self.pool.alloc_array_uninit::<u8>(PAGE_SIZE)?);
-            self.io.borrow_mut().deref_mut().read_exact(page.borrow_mut().deref_mut())?;
+            self.io.borrow_mut().deref_mut().read_exact(page.borrow_mut_all().borrow_mut().deref_mut())?;
             Ok(page)
         }
     }
 
     /// Drop the page
     fn drop_page(&self, pid: PageId) -> Result<()> {
-        self.get_page(pid)?.borrow_mut().set_type(FREE_PAGE);
+        self.get_page(pid)?.set_type(FREE_PAGE);
         Ok(())
     }
 
     fn flush(&self) -> Result<()> {
         for mut page in self.iter_upserted_pages() {
-            let offset = (RESERVED + page.borrow().get_size() * (page.borrow().get_id() as usize)) as u64;
+            let offset = (RESERVED + page.get_size() * (page.get_id() as usize)) as u64;
             self.io.borrow_mut().seek(SeekFrom::Start(offset))?;
-            self.io.borrow_mut().write_all(&page.borrow_mut().deref_mut())?;
-            page.borrow_mut_data().ack_upsertion();
+            self.io.borrow_mut().write_all(&page.borrow_mut_all().borrow_mut().deref_mut())?;
+            page.ack_upsertion();
         }
 
         Ok(())
@@ -166,7 +139,7 @@ where Stream: Read + Write + Seek
 
     /// Return an iterator over upserted pages.
     pub fn iter_upserted_pages(&self) -> impl Iterator<Item=BufPage> {
-        self.iter().filter(|page| page.borrow_data().is_upserted())
+        self.iter().filter(|page| page.is_upserted())
     }
 
     /// Iterate over in memory pages

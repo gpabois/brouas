@@ -81,6 +81,20 @@ pub mod slice {
 pub mod borrow {
     use std::ops::{DerefMut, Deref};
 
+    pub trait TryBorrow<T> where T: ?Sized {
+        type Ref;
+        type Error;
+
+        fn try_borrow(&self) -> std::result::Result<Self::Ref, Self::Error>;
+    }
+
+    pub trait TryBorrowMut<T> where T: ?Sized {
+        type RefMut;
+        type Error;
+
+        fn try_borrow_mut(&self) -> std::result::Result<Self::RefMut, Self::Error>;
+    }
+
     pub trait Borrow<T> where T: ?Sized
     {   
         type Ref: Deref<Target=T>;
@@ -110,6 +124,15 @@ pub mod borrow {
         }
     }
 
+    impl<'a, T: ?Sized> Deref for Ref<'a, &'a T> {
+        type Target = T;
+
+        fn deref(&self) -> &Self::Target {
+            self.0
+        }
+    }
+
+
     impl<'a, T: ?Sized> Borrow<T> for Ref<'a, &'a T> {
         type Ref = &'a T;
 
@@ -121,8 +144,8 @@ pub mod borrow {
     impl<'a, T: ?Sized> Borrow<T> for Ref<'a, &'a mut T> {
         type Ref = &'a T;
 
-        fn borrow(&self) -> Self::Ref {
-            self.0
+        fn borrow(&'a self) -> Self::Ref {
+            &self.0
         }
     }
 
@@ -130,7 +153,22 @@ pub mod borrow {
     impl<'a, T: ?Sized> BorrowMut<T> for Ref<'a, &'a mut T> {
         type RefMut = &'a mut T;
 
-        fn borrow_mut(&mut self) -> Self::RefMut {
+        fn borrow_mut(&'a mut self) -> Self::RefMut {
+            &mut self.0
+        }
+    }
+
+    impl<'a, T: ?Sized> Deref for Ref<'a, &'a mut T> {
+        type Target = T;
+
+        fn deref(&self) -> &Self::Target {
+            self.0
+        }
+    }
+
+    impl<'a, T: ?Sized> DerefMut for Ref<'a, &'a mut T> {
+
+        fn deref_mut(&mut self) -> &mut Self::Target {
             self.0
         }
     }

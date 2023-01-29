@@ -1,6 +1,6 @@
-use std::{alloc::Layout, ops::{Deref, DerefMut}};
+use std::{alloc::Layout, ops::{Deref, DerefMut}, cell::RefMut};
 
-use crate::utils::borrow::{Borrow, BorrowMut};
+use crate::utils::borrow::{Borrow, BorrowMut, TryBorrow, TryBorrowMut};
 
 #[derive(Debug)]
 pub enum Error {
@@ -161,17 +161,20 @@ pub struct BufArray<'buffer, T> {
     _pht: std::marker::PhantomData<T>
 }
 
-impl<'buffer, T> BufArray<'buffer, T> {
-    fn new(raw: impl Into<RawBufferCell<'buffer>>, len: usize) -> Self {
-        Self {
-            len,
-            raw: raw.into(),
-            _pht: Default::default()
-        }
-    }
+impl<'buffer, T> Borrow<[T]> for BufArray<'buffer, T> {
+    type Ref = RefBufArray<'buffer, T>;
 
-    /// Return an immutable reference to the array stored in the buffer, unless it is already mutable borrowed.
-    pub fn try_borrow(&self) -> Result<RefBufArray<'buffer, T>> {
+    /// Return an immutable reference to the array stored in the buffer, panic if it is already mutable borrowed.
+    fn borrow(&self) -> Self::Ref {
+        self.try_borrow().unwrap()
+    }
+}
+
+impl<'buffer, T> TryBorrow<[T]> for BufArray<'buffer, T> {
+    type Ref = RefBufArray<'buffer, T>;
+    type Error = Error;
+
+    fn try_borrow(&self) -> std::result::Result<Self::Ref, Self::Error> {
         if self.raw.is_mut_borrowed() {
             return Err(Error::MutablyBorrowed);
         } else {
@@ -180,14 +183,13 @@ impl<'buffer, T> BufArray<'buffer, T> {
             )
         }
     }
+}
 
-    /// Return an immutable reference to the array stored in the buffer, panic if it is already mutable borrowed.
-    pub fn borrow(&self) -> RefBufArray<'buffer, T> {
-        self.try_borrow().unwrap()
-    }
+impl<'buffer, T> TryBorrowMut<[T]> for BufArray<'buffer, T> {
+    type RefMut = RefMutBufArray<'buffer, T>;
+    type Error = Error;
 
-    /// Return a mutable reference to the array stored in the buffer, unless it is already mutable borrowed.
-    pub fn try_borrow_mut(&self) -> Result<RefMutBufArray<'buffer, T>> {
+    fn try_borrow_mut(&self) -> std::result::Result<Self::RefMut, Self::Error> {
         if self.raw.is_mut_borrowed() {
             return Err(Error::MutablyBorrowed);
         } else {
@@ -196,12 +198,26 @@ impl<'buffer, T> BufArray<'buffer, T> {
             )
         }
     }
+}
+
+impl<'buffer, T> BorrowMut<[T]> for BufArray<'buffer, T> {
+    type RefMut = RefMutBufArray<'buffer, T>;
 
     /// Return a mutable reference to the array stored in the buffer, panic if it is already mutable borrowed.
-    pub fn borrow_mut(&self) -> RefMutBufArray<'buffer, T> {
+    fn borrow_mut(&mut self) -> Self::RefMut {
         self.try_borrow_mut().unwrap()
     }
+}
 
+impl<'buffer, T> BufArray<'buffer, T> {
+    fn new(raw: impl Into<RawBufferCell<'buffer>>, len: usize) -> Self {
+        Self {
+            len,
+            raw: raw.into(),
+            _pht: Default::default()
+        }
+    }
+    
     pub fn is_upserted(&self) -> bool {
         self.raw.is_upserted()
     }
@@ -309,7 +325,7 @@ impl<'buffer, T> Borrow<[T]> for RefMutBufArray<'buffer, T> where T: 'static {
 
 impl<'buffer, T> BorrowMut<[T]> for RefMutBufArray<'buffer, T> where T: 'static {
     type RefMut = &'buffer mut [T];
-    
+
     fn borrow_mut(&mut self) -> Self::RefMut {
         unsafe {
             std::slice::from_raw_parts_mut(BufferBlock::leak_value_unchecked::<T>(self.raw.leak_mut()), self.len).into()
@@ -576,7 +592,7 @@ impl Drop for Buffer {
 
 #[cfg(test)]
 mod tests {
-    use crate::fixtures;
+    use crate::{fixtures, utils::borrow::{Borrow, BorrowMut}};
     use super::{Buffer};
 
     #[test]

@@ -1,6 +1,6 @@
-use std::{ops::{Range}};
+use std::{ops::{Range, Deref, DerefMut}};
 
-use crate::{utils::{borrow::{BorrowMut, Borrow}, slice::{Section}}};
+use crate::{utils::{borrow::{BorrowMut, Borrow, TryBorrow, TryBorrowMut}, slice::{Section}}, buffer::BufArray};
 
 use self::traits::{BorrowPageSection, BorrowMutPageSection};
 
@@ -78,12 +78,50 @@ fn get_parent(content: &[u8]) -> u64 {
     u64::from_le_bytes(content[PARENT_RANGE].try_into().unwrap())
 }
 
-#[derive(Clone)]
-pub struct Page<'a, Q>(Q, std::marker::PhantomData<&'a ()>);
+pub struct PageCell<D>(D);
 
-impl<'a, Q> Page<'a, Q> where Q: BorrowMut<[u8]> {
+impl<Q> TryBorrow<Q::Ref> for PageCell<Q> where Q: TryBorrow<[u8]> {
+    type Ref = RefPage<Q::Ref>;
+    type Error = crate::paging::error::Error;
+
+    fn try_borrow(&self) -> std::result::Result<Self::Ref, Self::Error> {
+        self.0.try_borrow()
+    }
+}
+
+impl<Q> TryBorrowMut<Q::RefMut> for PageCell<Q> where Q: TryBorrowMut<[u8]> {
+    type RefMut = RefPage<Q::RefMut>;
+    type Error = crate::paging::error::Error;
+
+    fn try_borrow_mut(&self) -> std::result::Result<Self::RefMut, Self::Error> {
+        self.0.try_borrow_mut()
+    }
+}
+
+#[derive(Clone)]
+pub struct RefPage<Q>(Q) where Q: Deref<Target=[u8]>;
+
+pub type BufPage<'buffer> = PageCell<BufArray<'buffer, u8>>;
+
+impl<Q> From<Q> for RefPage<Q> {
+    fn from(value: Q) -> Self {
+        Self(value)
+    }
+}
+
+impl<'buffer> BufPage<'buffer> {
+    pub fn is_upserted(&self) -> bool {
+        self.0.is_upserted()
+    }
+
+    pub fn ack_upsertion(&mut self) {
+        self.0.ack_upsertion()
+    }
+}
+
+impl<Q> RefPage<Q> where Q: DerefMut<Target=[u8]> {
     pub fn new(pid: u64, ptype: u8, data: Q) -> Self {
-        let mut page = Self(data, Default::default());
+        let mut page = Self(data);
         page.set_id(pid);
         page.set_type(ptype);
         page
@@ -102,9 +140,26 @@ impl<'a, Q> Page<'a, Q> where Q: BorrowMut<[u8]> {
     }
 }
 
+impl<Q> RefPage<Q> where Q: BorrowMut<[u8]> {
+    pub fn get_id(&self) -> u64 {
+        get_id(&self.0.borrow())
+    }
+
+    pub fn get_type(&self) -> u8 {
+        get_type(&self.0.borrow())
+    }
+
+    pub fn get_parent(&self, parent: u64) -> u64 {
+        get_parent(&self.0.borrow())
+    }
+
+    pub fn get_size(&self) -> usize {
+        self.0.borrow().len()
+    }
+}
 
 
-impl<'a, Q> BorrowPageSection for Page<'a, Q> where Q: Borrow<[u8]> + 'a
+impl<'a, Q> BorrowPageSection for RefPage<'a, Q> where Q: Borrow<[u8]> + 'a
 {
     type ReadSection = Section<'a, &'a Q, usize, u8>;
 
@@ -117,7 +172,7 @@ impl<'a, Q> BorrowPageSection for Page<'a, Q> where Q: Borrow<[u8]> + 'a
     }
 }
 
-impl<'a, Q> BorrowMutPageSection for Page<'a, Q> where Q: BorrowMut<[u8]> + 'a
+impl<'a, Q> BorrowMutPageSection for RefPage<'a, Q> where Q: BorrowMut<[u8]> + 'a
 {
     type WriteSection = Section<'a, &'a mut Q, usize, u8>;
 
@@ -134,8 +189,8 @@ impl<'a, Q> BorrowMutPageSection for Page<'a, Q> where Q: BorrowMut<[u8]> + 'a
 mod tests {
     use std::{ops::{DerefMut, Deref}, io::{Write, Read}};
 
-    use crate::{io::Data, fixtures, utils::borrow::{Ref, BorrowMut, Borrow}, pager::page::traits::{BorrowMutPageSection, BorrowPageSection}};
-    use super::Page;
+    use crate::{io::Data, fixtures, utils::borrow::{Ref, BorrowMut, Borrow}, paging::page::traits::{BorrowMutPageSection, BorrowPageSection}};
+    use super::RefPage;
 
     #[test]
     pub fn test_page() -> std::io::Result<()> {
@@ -145,7 +200,7 @@ mod tests {
         let data = fixtures::random_data(data_size);
         let mut stored_data = Data::with_size(data_size);
 
-        let mut page = Page::new(1, 1, Ref::from(&mut area[..]));
+        let mut page = RefPage::new(1, 1, Ref::from(&mut area[..]));
         page.borrow_mut_body()
         .borrow_mut()
         .deref_mut()
