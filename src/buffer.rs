@@ -1,6 +1,6 @@
-use std::{alloc::Layout, ops::{Deref, DerefMut}, cell::RefMut};
+use std::{alloc::Layout, ops::{Deref, DerefMut}};
 
-use crate::utils::borrow::{Borrow, BorrowMut, TryBorrow, TryBorrowMut};
+use crate::utils::borrow::{RefBorrowMut, TryBorrow, TryBorrowMut, RefBorrow};
 
 #[derive(Debug)]
 pub enum Error {
@@ -161,16 +161,7 @@ pub struct BufArray<'buffer, T> {
     _pht: std::marker::PhantomData<T>
 }
 
-impl<'buffer, T> Borrow<[T]> for BufArray<'buffer, T> {
-    type Ref = RefBufArray<'buffer, T>;
-
-    /// Return an immutable reference to the array stored in the buffer, panic if it is already mutable borrowed.
-    fn borrow(&self) -> Self::Ref {
-        self.try_borrow().unwrap()
-    }
-}
-
-impl<'buffer, T> TryBorrow<[T]> for BufArray<'buffer, T> {
+impl<'buffer, T> TryBorrow<'buffer, [T]> for BufArray<'buffer, T> {
     type Ref = RefBufArray<'buffer, T>;
     type Error = Error;
 
@@ -185,11 +176,10 @@ impl<'buffer, T> TryBorrow<[T]> for BufArray<'buffer, T> {
     }
 }
 
-impl<'buffer, T> TryBorrowMut<[T]> for BufArray<'buffer, T> {
+impl<'buffer, T> TryBorrowMut<'buffer, [T]> for BufArray<'buffer, T> {
     type RefMut = RefMutBufArray<'buffer, T>;
-    type Error = Error;
 
-    fn try_borrow_mut(&self) -> std::result::Result<Self::RefMut, Self::Error> {
+    fn try_borrow_mut(&mut self) -> std::result::Result<Self::RefMut, Self::Error> {
         if self.raw.is_mut_borrowed() {
             return Err(Error::MutablyBorrowed);
         } else {
@@ -197,15 +187,6 @@ impl<'buffer, T> TryBorrowMut<[T]> for BufArray<'buffer, T> {
                 RefMutBufArray::new(self.raw.clone(), self.len)
             )
         }
-    }
-}
-
-impl<'buffer, T> BorrowMut<[T]> for BufArray<'buffer, T> {
-    type RefMut = RefMutBufArray<'buffer, T>;
-
-    /// Return a mutable reference to the array stored in the buffer, panic if it is already mutable borrowed.
-    fn borrow_mut(&mut self) -> Self::RefMut {
-        self.try_borrow_mut().unwrap()
     }
 }
 
@@ -245,6 +226,15 @@ impl<'buffer, T> RefBufArray<'buffer, T> {
     }
 }
 
+impl<'buffer, T> AsRef<[T]> for RefBufArray<'buffer, T> {
+
+    fn as_ref(&self) -> &[T] {
+        unsafe {
+            std::slice::from_raw_parts(BufferBlock::leak_value_unchecked::<T>(self.raw.leak()), self.len)
+        }
+    }
+}
+
 impl<'buffer, T> Deref for RefBufArray<'buffer, T> {
     type Target = [T];
 
@@ -255,8 +245,8 @@ impl<'buffer, T> Deref for RefBufArray<'buffer, T> {
     }
 }
 
-impl<'buffer, T: 'static> Borrow<[T]> for RefBufArray<'buffer, T> {
-    fn borrow(&self) -> Self::Ref {
+impl<'buffer, T: 'static> RefBorrow<'buffer, [T]> for RefBufArray<'buffer, T> {
+    fn borrow_ref(&self) -> Self::Ref {
         unsafe {
             std::slice::from_raw_parts(BufferBlock::leak_value_unchecked::<T>(self.raw.leak()), self.len).into()
         }
@@ -274,7 +264,7 @@ pub struct RefMutBufArray<'buffer, T> {
 
 impl<'buffer, T> RefMutBufArray<'buffer, T> {
     fn new(raw: RawBufferCell<'buffer>, len: usize) -> Self {
-        let mut mut_ref = Self {
+        let mut_ref = Self {
             len,
             raw,
             _pht: Default::default()
@@ -287,7 +277,7 @@ impl<'buffer, T> RefMutBufArray<'buffer, T> {
 
 impl<'buffer, T> Drop for RefMutBufArray<'buffer, T> {
     fn drop(&mut self) {
-        self.raw.drop_upserted();
+        self.raw.drop_mut_borrow();
     }
 }
 
@@ -301,6 +291,22 @@ impl<'buffer, T> Deref for RefMutBufArray<'buffer, T> {
     }
 }
 
+impl<'buffer, T> AsRef<[T]> for RefMutBufArray<'buffer, T> {
+    fn as_ref(&self) -> &[T] {
+        unsafe {
+            std::slice::from_raw_parts(BufferBlock::leak_value_unchecked::<T>(self.raw.leak()), self.len)
+        }
+    }
+}
+
+impl<'buffer, T> AsMut<[T]> for RefMutBufArray<'buffer, T> {
+    fn as_mut(&mut self) -> &mut [T] {
+        unsafe {
+            std::slice::from_raw_parts_mut(BufferBlock::leak_value_unchecked::<T>(self.raw.leak_mut()), self.len)
+        }
+    }
+}
+
 impl<'buffer, T> DerefMut for RefMutBufArray<'buffer, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe {
@@ -309,10 +315,10 @@ impl<'buffer, T> DerefMut for RefMutBufArray<'buffer, T> {
     }
 }
 
-impl<'buffer, T> Borrow<[T]> for RefMutBufArray<'buffer, T> where T: 'static {
+impl<'buffer, T> RefBorrow<'buffer, [T]> for RefMutBufArray<'buffer, T> where T: 'static {
     type Ref = &'buffer [T];
     
-    fn borrow(&self) -> Self::Ref {
+    fn borrow_ref(&self) -> Self::Ref {
         unsafe {
             std::slice::from_raw_parts::<'buffer, _>(
                 BufferBlock::leak_value_unchecked::<T>(
@@ -323,16 +329,14 @@ impl<'buffer, T> Borrow<[T]> for RefMutBufArray<'buffer, T> where T: 'static {
     }
 }
 
-impl<'buffer, T> BorrowMut<[T]> for RefMutBufArray<'buffer, T> where T: 'static {
+impl<'buffer, T> RefBorrowMut<'buffer, [T]> for RefMutBufArray<'buffer, T> where T: 'static {
     type RefMut = &'buffer mut [T];
 
-    fn borrow_mut(&mut self) -> Self::RefMut {
+    fn borrow_mut_ref(&mut self) -> Self::RefMut {
         unsafe {
             std::slice::from_raw_parts_mut(BufferBlock::leak_value_unchecked::<T>(self.raw.leak_mut()), self.len).into()
         }
     }
-
-
 }
 
 
@@ -592,7 +596,7 @@ impl Drop for Buffer {
 
 #[cfg(test)]
 mod tests {
-    use crate::{fixtures, utils::borrow::{Borrow, BorrowMut}};
+    use crate::{fixtures, utils::borrow::{TryBorrowMut, TryBorrow}};
     use super::{Buffer};
 
     #[test]
@@ -601,10 +605,10 @@ mod tests {
         let buffer = Buffer::new_by_array::<u8>(16000, 300);
         let mut arr = buffer.alloc_array_uninit::<u8>(16000)?;
 
-        assert_eq!(arr.borrow().len(), 16000);
-        arr.borrow_mut().copy_from_slice(&random);
+        assert_eq!(arr.try_borrow()?.len(), 16000);
+        arr.try_borrow_mut()?.copy_from_slice(&random);
         
-        assert_eq!(*arr.borrow(), *random);
+        assert_eq!(*arr.try_borrow()?, *random);
         
         Ok(())
     }
