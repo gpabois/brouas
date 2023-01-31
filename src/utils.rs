@@ -22,37 +22,35 @@ pub mod cell {
 }
 
 pub mod slice {
-    use std::ops::{Index, IndexMut};
+    use std::ops::{Index, IndexMut, Deref, DerefMut};
     use crate::{utils::ops::GenRange};
 
     use super::borrow::{TryBorrow, TryBorrowMut};
 
-    pub trait Sectionable<'a, S> {
+    pub trait BorrowSection<'a, S> {
         type Cursor;
 
-        fn section(&'a self, cursor: Self::Cursor) -> S; 
+        fn borrow_section(&'a self, cursor: Self::Cursor) -> S; 
     }
 
-    pub trait TrySectionable<'a, S> {
-        type Cursor;
-        type Error;
-
-        fn try_section(&'a self, cursor: Self::Cursor) -> std::result::Result<S, Self::Error>;         
-    }
-
-    pub trait MutSectionable<'a, S> {
+    pub trait BorrowMutSection<'a, S> {
         type Cursor;
 
-        fn section_mut(&'a mut self, cursor: Self::Cursor) -> S; 
+        fn borrow_mut_section(&'a mut self, cursor: Self::Cursor) -> S; 
     }
 
-    pub trait TryMutSectionable<'a, S> {
-        type Error;
+    pub trait CloneSection<S> {
         type Cursor;
 
-        fn try_section_mut(&'a mut self, cursor: Self::Cursor) -> std::result::Result<S, Self::Error>; 
+        fn clone_section(&self, cursor: Self::Cursor) -> S; 
     }
-    
+
+    pub trait IntoSection<S> {
+        type Cursor;
+
+        fn into_section(self, cursor: Self::Cursor) -> S; 
+    }
+
     pub trait SubSlice {
         type Domain;
 
@@ -100,6 +98,23 @@ pub mod slice {
 
         fn as_ref(&self) -> &[T] {
             &self.0.as_ref()[self.1.clone()]
+        }
+    }
+
+    impl<'a, S, I, T> Deref for Section<'a, S, I, T> 
+    where S: AsMut<[T]>, [T]: IndexMut<GenRange<I>, Output=[T]>, I: Clone {
+        type Target = [T];
+
+        fn deref(&self) -> &Self::Target {
+            self.as_ref()
+        }
+    }
+
+    impl<'a, S, I, T> DerefMut for Section<'a, S, I, T> 
+    where S: AsMut<[T]>, [T]: IndexMut<GenRange<I>, Output=[T]>, I: Clone {
+
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            self.as_mut()
         }
     }
 

@@ -1,8 +1,8 @@
 use std::{io::{Read, Write, Seek, SeekFrom}, ops::DerefMut};
 
-use crate::{buffer::{Buffer, BufCellIterator}, utils::{Counter, cell::TryCell, slice::MutSectionable}};
+use crate::{buffer::{Buffer, BufCellIterator}, utils::{Counter, cell::TryCell, slice::{IntoSection, CloneSection}, borrow::TryBorrowMut}};
 
-use super::{page::{BufPage, PageCell, PageSectionType}, error::Error, result::Result};
+use super::{page::{BufPage, PageSectionType, Page}, error::Error, result::Result};
 
 
 pub type PageId = u64;
@@ -89,14 +89,15 @@ where Stream: Read + Write + Seek {
         // We need to load it from the stream
         else {
             self.io.borrow_mut().seek(SeekFrom::Start(RESERVED as u64))?;
-            let mut page = self.pool.alloc_array_uninit::<u8>(PAGE_SIZE).map(PageCell::from)?;
+            let page = self.pool.alloc_array_uninit::<u8>(PAGE_SIZE).map(Page::from)?;
 
             self.io.borrow_mut().deref_mut().read_exact(
                 page
+                .clone_section(PageSectionType::All)
                 .try_borrow_mut()?
-                .section_mut(PageSectionType::All)
                 .as_mut()
             )?;
+
             Ok(page)
         }
     }
@@ -113,7 +114,9 @@ where Stream: Read + Write + Seek {
         for mut page in self.iter_upserted_pages() {
             let offset = (RESERVED + page.try_borrow()?.get_size() * (page.try_borrow()?.get_id() as usize)) as u64;
             self.io.borrow_mut().seek(SeekFrom::Start(offset))?;
-            self.io.borrow_mut().write_all(page.try_borrow_mut()?.section_mut(PageSectionType::All).as_mut())?;
+            self.io.borrow_mut().write_all(
+                page.try_borrow_mut()?.into_section(PageSectionType::All).as_mut()
+            )?;
             page.ack_upsertion();
         }
 
@@ -151,8 +154,8 @@ where Stream: Read + Write + Seek
 
 #[cfg(test)]
 mod tests {
-    use std::{io::{Write, Read}};
-    use crate::{io::{InMemory, Data}, fixtures, paging::page::{PageSectionType, traits::TryReadPage}, utils::{cell::TryCell, slice::{MutSectionable, Sectionable}}};
+    use std::{io::{Write, Read}, ops::DerefMut};
+    use crate::{io::{InMemory, Data}, fixtures, paging::page::{PageSectionType}, utils::{cell::TryCell, slice::{BorrowSection, IntoSection, CloneSection}, borrow::TryBorrowMut}};
     use super::{traits::Pager, PageId};
 
 
@@ -165,19 +168,19 @@ mod tests {
         
         let pid: PageId;
         {
-            let mut page = pager.new_page(0x10)?;
-            pid = page.try_get_id()?;
+            let page = pager.new_page(0x10)?;
+            pid = page.try_borrow()?.get_id();
             
             page
+            .clone_section(PageSectionType::Body)
             .try_borrow_mut()?
-            .section_mut(PageSectionType::Body)
-            .as_mut()
+            .deref_mut()
             .write_all(&random)?;
         }
 
         let mut stored = Data::with_size(data_size);
         let page = pager.get_page(pid)?.try_borrow()?;
-        page.section(PageSectionType::Body).as_ref().read(&mut stored)?;
+        page.clone_section(PageSectionType::Body).as_ref().read(&mut stored)?;
         
         assert_eq!(random, stored);
 

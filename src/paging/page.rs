@@ -2,10 +2,9 @@ use std::ops::Range;
 
 use crate::buffer::BufArray;
 use crate::utils::cell::TryCell;
-use crate::utils::slice::{Section, Sectionable, MutSectionable, TrySectionable, TryMutSectionable};
-use crate::utils::borrow::{TryBorrow, TryBorrowMut};
-
-use self::traits::TryReadPage;
+use crate::utils::slice::{Section, BorrowSection, CloneSection, BorrowMutSection, IntoSection};
+use crate::utils::borrow::{TryBorrowMut};
+use crate::utils::borrow::TryBorrow;
 
 /// Page types
 pub const ROOT: u8 = 0x1;
@@ -25,15 +24,6 @@ pub mod traits
         fn get_type(&self) -> u8;
         fn get_parent(&self) -> u64;
         fn get_size(&self) -> usize;
-    }
-
-    pub trait TryReadPage {
-        type Error;
-
-        fn try_get_id(&self) -> std::result::Result<u64, Self::Error>;
-        fn try_get_type(&self) -> std::result::Result<u8, Self::Error>;
-        fn try_get_parent(&self) -> std::result::Result<u64, Self::Error>;
-        fn try_get_size(&self) -> std::result::Result<usize, Self::Error>;
     }
 
     pub trait WritePage {
@@ -67,16 +57,16 @@ fn get_parent(content: &[u8]) -> u64 {
     u64::from_le_bytes(content[PARENT_RANGE].try_into().unwrap())
 }
 
-pub struct PageCell<'a, D>(D, std::marker::PhantomData<&'a ()>);
+#[derive(Clone)]
+pub struct Page<'a, D>(D, std::marker::PhantomData<&'a ()>);
 
-impl<'a, DataCell> From<DataCell> for PageCell<'a, DataCell> {
-    fn from(data: DataCell) -> Self {
+impl<'a, Data> From<Data> for Page<'a, Data> {
+    fn from(data: Data) -> Self {
         Self(data, Default::default())
     }
 }
 
-impl<'a, Q> TryCell for PageCell<'a, Q> where Q: TryBorrowMut<'a, [u8]>
-{
+impl<'a, Q> TryCell for Page<'a, Q> where Q: TryBorrowMut<'a, [u8]> {
     type Error = Q::Error;
     type Ref = Page<'a, Q::Ref>;
     type RefMut = Page<'a, Q::RefMut>;
@@ -90,62 +80,9 @@ impl<'a, Q> TryCell for PageCell<'a, Q> where Q: TryBorrowMut<'a, [u8]>
     }
 }
 
-impl<'a, Q> TryReadPage for PageCell<'a, Q> where Q: TryBorrow<'a, [u8]> {
-    type Error = Q::Error;
-
-    fn try_get_id(&self) -> std::result::Result<u64, Self::Error> {
-        self.0.try_borrow().map(|page| get_id(page.as_ref()))
-    }
-
-    fn try_get_type(&self) -> std::result::Result<u8, Self::Error> {
-        self.0.try_borrow().map(|page| get_type(page.as_ref()))
-    }
-
-    fn try_get_parent(&self) -> std::result::Result<u64, Self::Error> {
-        self.0.try_borrow().map(|page| get_parent(page.as_ref()))
-
-    }
-
-    fn try_get_size(&self) -> std::result::Result<usize, Self::Error> {
-        self.0.try_borrow().map(|page| page.as_ref().len())
-    }
-}
-
-impl<'a, Q> TrySectionable<'a, PageSection<'a, Q::Ref>> for PageCell<'a, Q> where Q: TryBorrow<'a, [u8]> {
-    type Cursor = PageSectionType;
-    type Error = Q::Error;
-
-    fn try_section(&'a self, cursor: Self::Cursor) -> std::result::Result<PageSection<'a, Q::Ref>, Self::Error> {
-        Ok(match cursor {
-            PageSectionType::Body => {
-                PageSection::new(self.0.try_borrow()?, RESERVED..)
-            },
-            PageSectionType::All => {
-                PageSection::new(self.0.try_borrow()?, ..)
-            },
-        })
-    }
-}
-
-impl<'a, Q> TryMutSectionable<'a, PageSection<'a, Q::Ref>> for PageCell<'a, Q> where Q: TryBorrowMut<'a, [u8]> {
-    type Cursor = PageSectionType;
-    type Error = Q::Error;
-
-    fn try_section_mut(&'a mut self, cursor: Self::Cursor) -> std::result::Result<PageSection<'a, Q::RefMut>, Self::Error> {
-        Ok(match cursor {
-            PageSectionType::Body => {
-                PageSection::new(self.0.try_borrow_mut()?, RESERVED..)
-            },
-            PageSectionType::All => {
-                PageSection::new(self.0.try_borrow_mut()?, ..)
-            },
-        })
-    }
-}
-
-impl<'a, Q> PageCell<'a, Q> where Q: TryBorrowMut<'a, [u8]> {
+impl<'a, Q> Page<'a, Q> where Q: TryBorrowMut<'a, [u8]> {
     pub fn try_new(pid: u64, ptype: u8, data: Q) -> std::result::Result<Self, Q::Error> {
-        let mut pg = PageCell(data, Default::default());
+        let mut pg = Self(data, Default::default());
         
         {
             let mut mpg = pg.try_borrow_mut()?;
@@ -160,31 +97,6 @@ impl<'a, Q> PageCell<'a, Q> where Q: TryBorrowMut<'a, [u8]> {
 
 pub type PageSection<'a, Q> = Section<'a, Q, usize, u8>;
 
-impl<'buffer, D> Sectionable<'buffer, PageSection<'buffer, D>> for PageCell<'buffer, D> 
-where D: Clone
-{
-    type Cursor = PageSectionType;
-
-    fn section(&self, cursor: Self::Cursor) -> PageSection<'buffer, D> {
-        match cursor {
-            PageSectionType::Body => {
-                PageSection::new(self.0.clone(), RESERVED..)
-            },
-            PageSectionType::All => {
-                PageSection::new(self.0.clone(), ..)
-            },
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct Page<'a, Q>(Q, std::marker::PhantomData<&'a ()>) where Q: AsRef<[u8]>;
-
-impl<'a, Q> From<Q> for Page<'a, Q> where Q: AsRef<[u8]> {
-    fn from(value: Q) -> Self {
-        Self(value, Default::default())
-    }
-}
 impl<'a, Q> Page<'a, Q> where Q: AsMut<[u8]> + AsRef<[u8]> {
     pub fn new(pid: u64, ptype: u8, data: Q) -> Self {
         let mut page = Self(data, Default::default());
@@ -223,11 +135,43 @@ impl<'a, Q> Page<'a, Q> where Q: AsRef<[u8]> {
     }
 }
 
-impl<'a, Q> Sectionable<'a, PageSection<'a, &'a Q>> for Page<'a, Q> where Q: AsRef<[u8]>
+impl<'buffer, D> IntoSection<PageSection<'buffer, D>> for Page<'buffer, D>
 {
     type Cursor = PageSectionType;
 
-    fn section(&'a self, cursor: Self::Cursor) -> PageSection<'a, &'a Q> {
+    fn into_section(self, cursor: Self::Cursor) -> PageSection<'buffer, D> {
+        match cursor {
+            PageSectionType::Body => {
+                PageSection::new(self.0, RESERVED..)
+            },
+            PageSectionType::All => {
+                PageSection::new(self.0, ..)
+            },
+        }
+    }
+}
+
+impl<'buffer, D> CloneSection<PageSection<'buffer, D>> for Page<'buffer, D> where D: Clone
+{
+    type Cursor = PageSectionType;
+
+    fn clone_section(&self, cursor: Self::Cursor) -> PageSection<'buffer, D> {
+        match cursor {
+            PageSectionType::Body => {
+                PageSection::new(self.0.clone(), RESERVED..)
+            },
+            PageSectionType::All => {
+                PageSection::new(self.0.clone(), ..)
+            },
+        }
+    }
+}
+
+impl<'a, Q> BorrowSection<'a, PageSection<'a, &'a Q>> for Page<'a, Q> where Q: AsRef<[u8]>
+{
+    type Cursor = PageSectionType;
+
+    fn borrow_section(&'a self, cursor: Self::Cursor) -> PageSection<'a, &'a Q> {
         match cursor {
             PageSectionType::Body => {
                 PageSection::new(&self.0, RESERVED..)
@@ -239,11 +183,11 @@ impl<'a, Q> Sectionable<'a, PageSection<'a, &'a Q>> for Page<'a, Q> where Q: AsR
     }
 }
 
-impl<'a, Q> MutSectionable<'a, PageSection<'a, &'a mut Q>> for Page<'a, Q> where Q: AsMut<[u8]> + AsRef<[u8]>
+impl<'a, Q> BorrowMutSection<'a, PageSection<'a, &'a mut Q>> for Page<'a, Q> where Q: AsMut<[u8]> + AsRef<[u8]>
 {
     type Cursor = PageSectionType;
 
-    fn section_mut(&'a mut self, cursor: Self::Cursor) -> PageSection<'a, &'a mut Q> {
+    fn borrow_mut_section(&'a mut self, cursor: Self::Cursor) -> PageSection<'a, &'a mut Q> {
         match cursor {
             PageSectionType::Body => {
                 PageSection::new(&mut self.0, RESERVED..)
@@ -255,7 +199,7 @@ impl<'a, Q> MutSectionable<'a, PageSection<'a, &'a mut Q>> for Page<'a, Q> where
     }
 }
 
-pub type BufPage<'buffer> = PageCell<'buffer, BufArray<'buffer, u8>>;
+pub type BufPage<'buffer> = Page<'buffer, BufArray<'buffer, u8>>;
 
 impl<'buffer> BufPage<'buffer> {
     pub fn is_upserted(&self) -> bool {
@@ -276,7 +220,7 @@ pub enum PageSectionType {
 mod tests {
     use std::io::{Write, Read};
 
-    use crate::{io::Data, fixtures, utils::{slice::{MutSectionable}}, paging::page::PageSectionType};
+    use crate::{io::Data, fixtures, paging::page::PageSectionType, utils::slice::{BorrowSection, BorrowMutSection}};
     use super::Page;
 
     #[test]
@@ -288,7 +232,7 @@ mod tests {
         let mut stored_data = Data::with_size(data_size);
 
         let mut page = Page::new(1, 1, &mut area[..]);
-        let mut section = page.section_mut(PageSectionType::Body);
+        let mut section = page.borrow_mut_section(PageSectionType::Body);
         
         section
         .as_mut()
