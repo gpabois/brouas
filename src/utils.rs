@@ -1,9 +1,9 @@
 use std::ops::DerefMut;
 
 #[derive(Default)]
-pub struct Counter(std::cell::RefCell<u64>);
+pub struct Counter<Id>(std::cell::RefCell<Id>);
 
-impl Counter {
+impl<Id: std::ops::AddAssign<u8>> Counter<Id> {
     pub fn inc(&self) -> u64 {
         *self.0.borrow_mut().deref_mut() += 1;
         *self.0.borrow_mut()
@@ -102,16 +102,16 @@ pub mod slice {
     }
 
     impl<'a, S, I, T> Deref for Section<'a, S, I, T> 
-    where S: AsMut<[T]>, [T]: IndexMut<GenRange<I>, Output=[T]>, I: Clone {
+    where S: AsRef<[T]>, [T]: IndexMut<GenRange<I>, Output=[T]>, I: Clone {
         type Target = [T];
 
         fn deref(&self) -> &Self::Target {
-            self.as_ref()
+            &self.0.as_ref()[self.1.clone()]
         }
     }
 
     impl<'a, S, I, T> DerefMut for Section<'a, S, I, T> 
-    where S: AsMut<[T]>, [T]: IndexMut<GenRange<I>, Output=[T]>, I: Clone {
+    where S: AsRef<[T]> + AsMut<[T]>, [T]: IndexMut<GenRange<I>, Output=[T]>, I: Clone {
 
         fn deref_mut(&mut self) -> &mut Self::Target {
             self.as_mut()

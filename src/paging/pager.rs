@@ -2,27 +2,26 @@ use std::{io::{Read, Write, Seek, SeekFrom}, ops::DerefMut};
 
 use crate::{buffer::{Buffer, BufCellIterator}, utils::{Counter, cell::TryCell, slice::{IntoSection, CloneSection}, borrow::TryBorrowMut}};
 
-use super::{page::{BufPage, PageSectionType, Page}, error::Error, result::Result};
-
+use super::{page::{BufPage, PageSectionType, traits::Page}, error::Error, result::Result};
 
 pub type PageId = u64;
 
 pub mod traits {
-    use super::{PageId};
+    use crate::paging::page::traits::Page;
     use std::result::Result;
 
     pub trait Pager<'a> {
         type Error;
-        type Page;
+        type Page: Page;
         
         /// Create a new page
-        fn new_page(&'a self, ptype: u8) -> Result<Self::Page, Self::Error>;
+        fn new_page(&'a self, ptype: <Self::Page as Page>::Type) -> Result<Self::Page, Self::Error>;
 
         /// Returns a cell to a page that can be upgraded to a mutable/immutable reference.
-        fn get_page(&'a self, pid: PageId) -> Result<Self::Page, Self::Error>;
+        fn get_page(&'a self, pid: &<Self::Page as Page>::Id) -> Result<Self::Page, Self::Error>;
 
         /// Drop the page
-        fn drop_page(&self, pid: PageId) -> Result<(), Self::Error>;
+        fn drop_page(&self, pid: &<Self::Page as Page>::Id) -> Result<(), Self::Error>;
 
         /// Flush upserted pages into the stream
         fn flush(&self) -> Result<(), Self::Error>;
@@ -46,8 +45,8 @@ impl<'buffer> BufPageIterator<'buffer> {
     }
 }
 
-impl<'buffer> Iterator for BufPageIterator<'buffer> {
-    type Item = BufPage<'buffer>;
+impl<'buffer, Id, Type> Iterator for BufPageIterator<'buffer, Id, Type> {
+    type Item = BufPage<'buffer, Id, Type>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.cells.next() {
@@ -57,18 +56,15 @@ impl<'buffer> Iterator for BufPageIterator<'buffer> {
     }
 }
 
-pub struct BufPager<'buffer, Stream>
+pub struct BufPager<'buffer, Id, Type, Stream>
 {
-    pool: Buffer,
-    io: std::cell::RefCell<Stream>,
-    counter: Counter,
-    _pht: std::marker::PhantomData<&'buffer ()>
+    pool: Buffer, io: std::cell::RefCell<Stream>, counter: Counter<Id>, _pht: std::marker::PhantomData<&'buffer ()>
 }
 
-impl<'buffer, Stream> self::traits::Pager<'buffer> for BufPager<'buffer, Stream>
+impl<'buffer, Id, Type, Stream> self::traits::Pager<'buffer> for BufPager<'buffer, Id, Type, Stream>
 where Stream: Read + Write + Seek {
     type Error = Error;
-    type Page = BufPage<'buffer>;
+    type Page = BufPage<'buffer, Id, Type>;
 
     /// Create a new page
     fn new_page(&'buffer self, ptype: u8) -> Result<Self::Page> 
@@ -80,7 +76,7 @@ where Stream: Read + Write + Seek {
     }
 
     /// Get a page by its index
-    fn get_page(&'buffer self, index: PageId) -> Result<Self::Page> {
+    fn get_page(&'buffer self, index: &<Self::Page as Page>::Id) -> Result<Self::Page> {
         // We check if the page is already stored in memory
         if let Some(page) = self.iter().find(|page| page.try_borrow().unwrap().get_id() == index)
         {
@@ -103,7 +99,7 @@ where Stream: Read + Write + Seek {
     }
 
     /// Drop the page
-    fn drop_page(&self, pid: PageId) -> Result<()> {
+    fn drop_page(&self, pid: &<Self::Page as Page>::Id) -> Result<()> {
         self.get_page(pid)?
         .try_borrow_mut()?
         .set_type(FREE_PAGE);
@@ -125,7 +121,7 @@ where Stream: Read + Write + Seek {
 
 }
 
-impl<'buffer, Stream> BufPager<'buffer, Stream>
+impl<'buffer, Id, Type, Stream> BufPager<'buffer, Id, Type, Stream>
 where Stream: Read + Write + Seek
 {
     /// Create a pager
@@ -155,9 +151,8 @@ where Stream: Read + Write + Seek
 #[cfg(test)]
 mod tests {
     use std::{io::{Write, Read}, ops::DerefMut};
-    use crate::{io::{InMemory, Data}, fixtures, paging::page::{PageSectionType}, utils::{cell::TryCell, slice::{BorrowSection, IntoSection, CloneSection}, borrow::TryBorrowMut}};
+    use crate::{io::{InMemory, Data}, fixtures, paging::page::{PageSectionType}, utils::{cell::TryCell, slice::CloneSection, borrow::TryBorrowMut}};
     use super::{traits::Pager, PageId};
-
 
     #[test]
     fn test_pager() -> super::Result<()> {
