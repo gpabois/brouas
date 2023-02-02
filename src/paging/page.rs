@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::buffer::BufArray;
+use crate::buffer::{BufArray, RefBufArray, RefMutBufArray};
 use crate::utils::cell::TryCell;
 use crate::utils::slice::{Section, BorrowSection, CloneSection, BorrowMutSection, IntoSection};
 use crate::utils::borrow::TryBorrowMut;
@@ -63,7 +63,7 @@ fn get_parent(content: &[u8]) -> u64 {
 }
 
 #[derive(Clone)]
-pub struct Page<'a, Id, Type, Data>(Data, std::marker::PhantomData<&'a ()>);
+pub struct Page<'a, Id, Type, Data>(Data, std::marker::PhantomData<&'a (Id, Type)>);
 
 impl<'a, Id, Type, Data> From<Data> for Page<'a, Id, Type, Data> {
     fn from(data: Data) -> Self {
@@ -98,7 +98,7 @@ impl<'a, Id, Type, DataCell> Page<'a, Id, Type, DataCell> where DataCell: TryBor
 }
 
 pub type PageSection<'a, Data> = Section<'a, Data, usize, u8>;
-impl<'a, Id, Type, Data> TraitPage for Page<'a, Id, Type, Data> where Data: AsRef<[u8]> {
+impl<'a, Id, Type, Data> TraitPage for Page<'a, Id, Type, Data>{
     type Id = Id;
     type Type = Type;
 }
@@ -201,6 +201,8 @@ impl<'buffer, Id, Type, Data> BorrowMutSection<'buffer, PageSection<'buffer, &'b
 }
 
 pub type BufPage<'buffer, Id, Type> = Page<'buffer, Id, Type, BufArray<'buffer, u8>>;
+pub type RefBufPage<'buffer, Id, Type> = Page<'buffer, Id, Type, RefBufArray<'buffer, u8>>;
+pub type RefMutPage<'buffer, Id, Type> = Page<'buffer, Id, Type, RefMutBufArray<'buffer, u8>>;
 
 impl<'buffer, Id, Type> BufPage<'buffer, Id, Type> {
     pub fn is_upserted(&self) -> bool {

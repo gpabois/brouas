@@ -4,7 +4,7 @@ use std::ops::DerefMut;
 pub struct Counter<Id>(std::cell::RefCell<Id>);
 
 impl<Id: std::ops::AddAssign<u8>> Counter<Id> {
-    pub fn inc(&self) -> u64 {
+    pub fn inc(&self) -> Id {
         *self.0.borrow_mut().deref_mut() += 1;
         *self.0.borrow_mut()
     }

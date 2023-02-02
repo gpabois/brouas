@@ -2,26 +2,40 @@ use std::{io::{Read, Write, Seek, SeekFrom}, ops::DerefMut};
 
 use crate::{buffer::{Buffer, BufCellIterator}, utils::{Counter, cell::TryCell, slice::{IntoSection, CloneSection}, borrow::TryBorrowMut}};
 
-use super::{page::{BufPage, PageSectionType, traits::Page}, error::Error, result::Result};
+use self::traits::PageStorage;
+
+use super::{page::{BufPage, PageSectionType, traits::Page, RefBufPage, RefMutPage}, error::Error, result::Result};
 
 pub type PageId = u64;
 
 pub mod traits {
-    use crate::paging::page::traits::Page;
+    use crate::paging::page::traits::{Page, ReadPage, WritePage};
     use std::result::Result;
+
+    pub trait PageStorage {
+        type Error;
+
+        fn store<Id: AsRef<str>, Data: AsRef<u8>>(&self, id: Id, page: Data) -> std::result::Result<(), Self::Error>;
+        fn fetch<Id: AsRef<str>, DataReceiver: AsMut<u8>>(&self, id: Id, data: &mut DataReceiver) -> std::result::Result<(), Self::Error>;
+    }
 
     pub trait Pager<'a> {
         type Error;
-        type Page: Page;
+        
+        type RefPage:       ReadPage;
+        type RefMutPage:    WritePage;
         
         /// Create a new page
-        fn new_page(&'a self, ptype: <Self::Page as Page>::Type) -> Result<Self::Page, Self::Error>;
+        fn new_page(&'a self, ptype: <Self::RefPage as Page>::Type) -> Result<<Self::RefPage as Page>::Id, Self::Error>;
 
-        /// Returns a cell to a page that can be upgraded to a mutable/immutable reference.
-        fn get_page(&'a self, pid: &<Self::Page as Page>::Id) -> Result<Self::Page, Self::Error>;
+        /// Returns an immutable reference to the page
+        fn borrow_page(&'a self, pid: &<Self::RefPage as Page>::Id) -> Result<Self::RefPage, Self::Error>;
+
+        /// Returns a mutable reference to the page
+        fn borrow_mut_page(&'a self, pid: &<Self::RefMutPage as Page>::Id) -> Result<Self::RefMutPage, Self::Error>;
 
         /// Drop the page
-        fn drop_page(&self, pid: &<Self::Page as Page>::Id) -> Result<(), Self::Error>;
+        fn drop_page(&self, pid: &<Self::RefPage as Page>::Id) -> Result<(), Self::Error>;
 
         /// Flush upserted pages into the stream
         fn flush(&self) -> Result<(), Self::Error>;
@@ -33,19 +47,22 @@ pub const RESERVED: usize = 10;
 pub const FREE_PAGE: u8 = 0x00;
 pub const OVERFLOW_PAGE: u8 = 0xFF;
 
-pub struct BufPageIterator<'buffer> {
-    cells: BufCellIterator<'buffer>
+pub struct BufPageIterator<'buffer, Page> {
+    cells: BufCellIterator<'buffer>,
+    pht: std::marker::PhantomData<Page>
 }
 
-impl<'buffer> BufPageIterator<'buffer> {
+impl<'buffer, Page> BufPageIterator<'buffer, Page> {
     pub fn new(cells: BufCellIterator<'buffer>) -> Self {
         Self {
-            cells
+            cells,
+            pht: Default::default()
         }
     }
 }
 
-impl<'buffer, Id, Type> Iterator for BufPageIterator<'buffer, Id, Type> {
+impl<'buffer, Id, Type> Iterator for BufPageIterator<'buffer, BufPage<'buffer, Id, Type>> 
+{
     type Item = BufPage<'buffer, Id, Type>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -56,88 +73,64 @@ impl<'buffer, Id, Type> Iterator for BufPageIterator<'buffer, Id, Type> {
     }
 }
 
-pub struct BufPager<'buffer, Id, Type, Stream>
+pub struct Pager<'buffer, Page, Storage>
+where Storage: PageStorage, Page: crate::paging::page::traits::Page, Page::Id: std::ops::AddAssign<u8>
 {
-    pool: Buffer, io: std::cell::RefCell<Stream>, counter: Counter<Id>, _pht: std::marker::PhantomData<&'buffer ()>
+    pool: Buffer, 
+    store: Storage, 
+    counter: Counter<Page::Id>, 
+    pht: std::marker::PhantomData<&'buffer ()>
 }
 
-impl<'buffer, Id, Type, Stream> self::traits::Pager<'buffer> for BufPager<'buffer, Id, Type, Stream>
-where Stream: Read + Write + Seek {
+pub type BufPager<'buffer, Id, Type, Storage> =  Pager<'buffer, BufPage<'buffer, Id, Type>, Storage>;
+
+impl<'buffer, Id, Type, Storage> self::traits::Pager<'buffer> for BufPager<'buffer, Id, Type, Storage> where Storage: PageStorage, Storage::Error: Into<Error>, Id: std::ops::AddAssign<u8>
+{
     type Error = Error;
-    type Page = BufPage<'buffer, Id, Type>;
+    type RefPage = RefBufPage<'buffer, Id, Type>;
+    type RefMutPage = RefMutPage<'buffer, Id, Type>;
 
-    /// Create a new page
-    fn new_page(&'buffer self, ptype: u8) -> Result<Self::Page> 
-    {
+    fn new_page(&'buffer self, ptype: <Self::RefPage as Page>::Type) -> std::result::Result<<Self::RefPage as Page>::Id, Self::Error> {
+        let data = self.pool.alloc_array_uninit::<u8>(PAGE_SIZE)?;
         let pid = self.counter.inc();
-        let area = self.pool.alloc_array_uninit::<u8>(PAGE_SIZE)?;
-        let page = BufPage::try_new(pid, ptype, area)?;
-        Ok(page)
+        let page = BufPage::try_new(pid, ptype, data)?;
+        Ok(pid)
     }
 
-    /// Get a page by its index
-    fn get_page(&'buffer self, index: &<Self::Page as Page>::Id) -> Result<Self::Page> {
-        // We check if the page is already stored in memory
-        if let Some(page) = self.iter().find(|page| page.try_borrow().unwrap().get_id() == index)
-        {
-            Ok(page)
-        } 
-        // We need to load it from the stream
-        else {
-            self.io.borrow_mut().seek(SeekFrom::Start(RESERVED as u64))?;
-            let page = self.pool.alloc_array_uninit::<u8>(PAGE_SIZE).map(Page::from)?;
-
-            self.io.borrow_mut().deref_mut().read_exact(
-                page
-                .clone_section(PageSectionType::All)
-                .try_borrow_mut()?
-                .as_mut()
-            )?;
-
-            Ok(page)
-        }
+    fn borrow_page(&'buffer self, pid: &<Self::RefPage as Page>::Id) -> std::result::Result<Self::RefPage, Self::Error> {
+        todo!()
     }
 
-    /// Drop the page
-    fn drop_page(&self, pid: &<Self::Page as Page>::Id) -> Result<()> {
-        self.get_page(pid)?
-        .try_borrow_mut()?
-        .set_type(FREE_PAGE);
-        Ok(())
+    fn borrow_mut_page(&'buffer self, pid: &<Self::RefMutPage as Page>::Id) -> std::result::Result<Self::RefMutPage, Self::Error> {
+        todo!()
     }
 
-    fn flush(&self) -> Result<()> {
-        for mut page in self.iter_upserted_pages() {
-            let offset = (RESERVED + page.try_borrow()?.get_size() * (page.try_borrow()?.get_id() as usize)) as u64;
-            self.io.borrow_mut().seek(SeekFrom::Start(offset))?;
-            self.io.borrow_mut().write_all(
-                page.try_borrow_mut()?.into_section(PageSectionType::All).as_mut()
-            )?;
-            page.ack_upsertion();
-        }
-
-        Ok(())
+    fn drop_page(&self, pid: &<Self::RefPage as Page>::Id) -> std::result::Result<(), Self::Error> {
+        todo!()
     }
 
+    fn flush(&self) -> std::result::Result<(), Self::Error> {
+        todo!()
+    }
 }
 
-impl<'buffer, Id, Type, Stream> BufPager<'buffer, Id, Type, Stream>
-where Stream: Read + Write + Seek
+impl<'buffer, Page, Storage> Pager<'buffer, Page, Storage>
+where Storage: PageStorage, Page: crate::paging::page::traits::Page
 {
     /// Create a pager
     /// io: The stream to read and write into
     /// buffer_size: number of pages that can be stored in memory
-    pub fn new(io: Stream, buffer_size: usize) -> Self {
+    pub fn new(store: Storage, buffer_size: usize) -> Self {
         Self {
-            io: std::cell::RefCell::new(io),
+            store,
             pool: Buffer::new_by_array::<u8>(PAGE_SIZE, buffer_size),
             counter: Default::default(),
-            _pht: Default::default()
+            pht: Default::default()
         }
     }
 
     /// Return an iterator over upserted pages.
-    pub fn iter_upserted_pages(&self) -> impl Iterator<Item=BufPage> {
+    pub fn iter_upserted_pages(&self) -> impl Iterator<Item=Page> {
         self.iter().filter(|page| page.is_upserted())
     }
 
@@ -156,7 +149,7 @@ mod tests {
 
     #[test]
     fn test_pager() -> super::Result<()> {
-        let pager = super::BufPager::new(InMemory::new(), 10);
+        let pager = super::Pager::new(InMemory::new(), 10);
         
         let data_size: usize = 1000;
         let random = fixtures::random_data(data_size);
